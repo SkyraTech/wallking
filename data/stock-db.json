@@ -1,0 +1,102 @@
+[
+  {
+    "designNo": "7517-04",
+    "brand": "Erismann",
+    "collection": "Eco-X Premier",
+    "quantity": 99,
+    "unit": "Rolls",
+    "status": "In Stock",
+    "location": "Hyderabad Central Depot",
+    "updatedAt": "Today, 09:30 AM"
+  },
+  {
+    "designNo": "ONYX-102",
+    "brand": "Marburg",
+    "collection": "Onyx Statement",
+    "quantity": 45,
+    "unit": "Rolls",
+    "status": "In Stock",
+    "location": "Hyderabad Central Depot",
+    "updatedAt": "Today, 09:30 AM"
+  },
+  {
+    "designNo": "BEL-804",
+    "brand": "Grandeco",
+    "collection": "Belvedere Gold",
+    "quantity": 120,
+    "unit": "Rolls",
+    "status": "In Stock",
+    "location": "Hyderabad Central Depot",
+    "updatedAt": "Today, 09:30 AM"
+  },
+  {
+    "designNo": "LOH-201",
+    "brand": "BN Walls",
+    "collection": "Lohas Botanical",
+    "quantity": 0,
+    "unit": "Rolls",
+    "status": "Out of Stock",
+    "location": "Hyderabad Central Depot",
+    "updatedAt": "Today, 09:30 AM"
+  },
+  {
+    "designNo": "GEO-509",
+    "brand": "Sangetsu",
+    "collection": "Geometric Luxe",
+    "quantity": 12,
+    "unit": "Rolls",
+    "status": "Low Stock",
+    "location": "Hyderabad Central Depot",
+    "updatedAt": "Today, 09:30 AM"
+  },
+  {
+    "designNo": "MAR-304",
+    "brand": "Zambaiti Parati",
+    "collection": "Marble Silk",
+    "quantity": 78,
+    "unit": "Rolls",
+    "status": "In Stock",
+    "location": "Hyderabad Central Depot",
+    "updatedAt": "Today, 09:30 AM"
+  },
+  {
+    "designNo": "BOT-401",
+    "brand": "Shinhan",
+    "collection": "Botanical Canopy",
+    "quantity": 210,
+    "unit": "Rolls",
+    "status": "In Stock",
+    "location": "Hyderabad Central Depot",
+    "updatedAt": "Today, 09:30 AM"
+  },
+  {
+    "designNo": "ECO-105",
+    "brand": "Erismann",
+    "collection": "Eco-X Premier",
+    "quantity": 0,
+    "unit": "Rolls",
+    "status": "Out of Stock",
+    "location": "Hyderabad Central Depot",
+    "updatedAt": "Today, 09:30 AM"
+  },
+  {
+    "designNo": "TEX-902",
+    "brand": "Lutèce",
+    "collection": "Textured Linen",
+    "quantity": 64,
+    "unit": "Rolls",
+    "status": "In Stock",
+    "location": "Hyderabad Central Depot",
+    "updatedAt": "Today, 09:30 AM"
+  },
+  {
+    "designNo": "VEL-603",
+    "brand": "Sirpi",
+    "collection": "Velvet Renaissance",
+    "quantity": 32,
+    "unit": "Rolls",
+    "status": "In Stock",
+    "location": "Hyderabad Central Depot",
+    "updatedAt": "Today, 09:30 AM"
+  }
+]
