@@ -654,3 +654,71 @@ export async function upsertStockItem(params: {
   }
   return data as StockItem;
 }
+
+// ---------------------------------------------------------------------------
+// WhatsApp State Machine Helpers
+// ---------------------------------------------------------------------------
+
+export async function fetchBrands(page: number): Promise<{ brands: string[], hasNextPage: boolean }> {
+  const pageSize = 9;
+  const { data, error } = await db.rpc('get_unique_brands', {
+    page_size: pageSize + 1, // Fetch one extra to determine if there's a next page
+    page_num: page
+  });
+
+  if (error) {
+    console.error("fetchBrands RPC error:", error);
+    return { brands: [], hasNextPage: false };
+  }
+
+  const brands = (data || []).map((row: any) => row.brand as string);
+  const hasNextPage = brands.length > pageSize;
+  
+  if (hasNextPage) {
+    brands.pop(); // Remove the extra item
+  }
+
+  return { brands, hasNextPage };
+}
+
+export async function fetchDesignsByBrand(brand: string, page: number): Promise<{ designs: string[], hasNextPage: boolean }> {
+  const pageSize = 9;
+  const { data, error } = await db.rpc('get_designs_by_brand', {
+    p_brand: brand,
+    page_size: pageSize + 1,
+    page_num: page
+  });
+
+  if (error) {
+    console.error("fetchDesignsByBrand RPC error:", error);
+    return { designs: [], hasNextPage: false };
+  }
+
+  const designs = (data || []).map((row: any) => row.design_number_display as string);
+  const hasNextPage = designs.length > pageSize;
+  
+  if (hasNextPage) {
+    designs.pop();
+  }
+
+  return { designs, hasNextPage };
+}
+
+export async function createOrder(params: {
+  senderPhone: string;
+  designNumber: string;
+  brand: string;
+  quantityRequested: number;
+}): Promise<void> {
+  const { error } = await db.from("whatsapp_orders").insert({
+    sender_phone: params.senderPhone,
+    design_number: params.designNumber,
+    brand: params.brand,
+    quantity_requested: params.quantityRequested,
+  });
+
+  if (error) {
+    throw new Error(`Failed to create order: ${error.message}`);
+  }
+}
+

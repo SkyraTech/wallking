@@ -2,18 +2,6 @@
  * src/lib/whatsapp-api.ts
  * Meta WhatsApp Business Cloud API helpers.
  * Server-side only — never import in client components.
- *
- * Exports:
- *   sendWhatsAppMessage()     — sends a text message via Meta Graph API
- *   buildAvailableReply()     — formats the "available" reply
- *   buildOutOfStockReply()    — formats the "out of stock" reply
- *   buildNotFoundReply()      — formats the "design not found" reply
- *   buildSafeFailureReply()   — DB error reply (never "Out of Stock")
- *   buildHelpReply()          — HELP command reply
- *   buildAgentReply()         — AGENT/HUMAN command reply
- *   buildOrderReply()         — ORDER command reply
- *   handleSpecialCommand()    — dispatches special commands
- *   maskPhone()               — last-4-digit masking for logs
  */
 
 import { StockLookupResult } from "./stock-service";
@@ -36,11 +24,6 @@ function getEnv(name: string): string {
 // Phone masking (for logs — GDPR/privacy)
 // ---------------------------------------------------------------------------
 
-/**
- * Masks a WhatsApp phone number for logging.
- * "+91 93962 02277" → "+91 XXXXXX2277"
- * "919396202277"    → "XXXXXXXX2277"
- */
 export function maskPhone(phone: string): string {
   if (!phone) return "[unknown]";
   const clean = phone.replace(/\D/g, "");
@@ -54,7 +37,7 @@ export function maskPhone(phone: string): string {
 
 export function buildAvailableReply(item: StockLookupResult): string {
   const lines = [
-    `📦 Wall King Stock Update`,
+    `📦 *Wall King Stock Update*`,
     ``,
     `Design No: *${item.designNo}*`,
     `Brand: *${item.brand}*`,
@@ -63,21 +46,127 @@ export function buildAvailableReply(item: StockLookupResult): string {
     item.warehouseLocation ? `Warehouse: ${item.warehouseLocation}` : null,
     ``,
     `Stock is subject to final order confirmation.`,
-  ]
-    .filter((l) => l !== null)
-    .join("\n");
+  ].filter((l) => l !== null).join("\n");
   return lines;
 }
 
-export function buildOutOfStockReply(designNo: string): string {
-  return [
-    `📦 Wall King Stock Update`,
-    ``,
-    `Design No: *${designNo}*`,
-    `Status: ❌ *Out of Stock*`,
-    ``,
-    `Reply *AGENT* if you would like our team to check incoming stock.`,
-  ].join("\n");
+// NEW: Interactive Button Reply for Stock Available
+export function buildStockButtonsReply(item: StockLookupResult): any {
+  return {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: buildAvailableReply(item) },
+      action: {
+        buttons: [
+          { type: "reply", reply: { id: `order_${item.designNo}`, title: "🛒 Order This" } },
+          { type: "reply", reply: { id: "check_another", title: "🔎 Check Another" } }
+        ]
+      }
+    }
+  };
+}
+
+// NEW: Quantity Prompt
+export function buildQuantityPromptReply(designNo: string): string {
+  return `How many rolls of *${designNo}* would you like to order?\n\n(Please type a number, e.g., 150)`;
+}
+
+// NEW: Order Confirmation
+export function buildOrderConfirmationReply(designNo: string, quantity: number): any {
+  return {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: `✅ *Order Request Received!*\n\nWe have logged your request for *${quantity} rolls* of *${designNo}*.\n\nA team member will contact you shortly to confirm the order.` },
+      action: {
+        buttons: [
+          { type: "reply", reply: { id: "check_another", title: "🔎 Check Another" } },
+          { type: "reply", reply: { id: "menu", title: "🏠 Main Menu" } }
+        ]
+      }
+    }
+  };
+}
+
+// NEW: Insufficient Stock
+export function buildInsufficientStockReply(item: StockLookupResult, requestedQty: number): any {
+  return {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: `⚠️ *Insufficient Stock*\n\nYou requested ${requestedQty} rolls of *${item.designNo}*, but we only have *${item.quantityRolls} rolls* available.\n\nHow would you like to proceed?` },
+      action: {
+        buttons: [
+          { type: "reply", reply: { id: `buy_partial_${item.designNo}_${item.quantityRolls}`, title: `🛒 Buy ${item.quantityRolls}` } },
+          { type: "reply", reply: { id: `wait_${item.designNo}_${requestedQty}`, title: "⏳ Ask Wait Time" } },
+          { type: "reply", reply: { id: "check_another", title: "🔎 Check Another" } }
+        ]
+      }
+    }
+  };
+}
+
+// NEW: Interactive List for Brands
+export function buildBrandsListReply(brands: string[], page: number, hasNextPage: boolean): any {
+  const rows = brands.map(b => ({ id: `brand_${b}`, title: b.slice(0, 24) }));
+  if (hasNextPage) {
+    rows.push({ id: `brands_page_${page + 1}`, title: "▶ Show More Brands" });
+  }
+
+  return {
+    type: "interactive",
+    interactive: {
+      type: "list",
+      header: { type: "text", text: "🏢 Wall King Brands" },
+      body: { text: "Please select a Brand to view its designs:" },
+      action: {
+        button: "View Brands",
+        sections: [{ title: `Brands (Page ${page})`, rows }]
+      }
+    }
+  };
+}
+
+// NEW: Interactive List for Designs
+export function buildDesignsListReply(brand: string, designs: string[], page: number, hasNextPage: boolean): any {
+  const rows = designs.map(d => ({ id: `design_${d}`, title: d.slice(0, 24) }));
+  if (hasNextPage) {
+    rows.push({ id: `designs_page_${brand}_${page + 1}`, title: "▶ Show More Designs" });
+  }
+  // Add back button
+  if (rows.length < 10) {
+    rows.push({ id: "menu", title: "🔙 Back to Brands" });
+  }
+
+  return {
+    type: "interactive",
+    interactive: {
+      type: "list",
+      header: { type: "text", text: `${brand} Designs` },
+      body: { text: `Please select a Design:` },
+      action: {
+        button: "View Designs",
+        sections: [{ title: `Designs (Page ${page})`, rows }]
+      }
+    }
+  };
+}
+
+export function buildOutOfStockReply(designNo: string): any {
+  return {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: `📦 Wall King Stock Update\n\nDesign No: *${designNo}*\nStatus: ❌ *Out of Stock*` },
+      action: {
+        buttons: [
+          { type: "reply", reply: { id: `wait_${designNo}_0`, title: "⏳ Ask Wait Time" } },
+          { type: "reply", reply: { id: "check_another", title: "🔎 Check Another" } }
+        ]
+      }
+    }
+  };
 }
 
 export function buildNotFoundReply(query: string): string {
@@ -85,88 +174,25 @@ export function buildNotFoundReply(query: string): string {
     `🔎 I couldn't find that design number.`,
     ``,
     `Please verify it and send it again, for example *7517-04*.`,
-    query
-      ? `(You sent: "${query.slice(0, 40)}${query.length > 40 ? "…" : ""}")`
-      : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
+    query ? `(You sent: "${query.slice(0, 40)}${query.length > 40 ? "…" : ""}")` : null,
+  ].filter(Boolean).join("\n");
 }
 
 export function buildSafeFailureReply(): string {
   return [
     `Sorry, I'm unable to check live stock right now.`,
     `Our team has been notified. Please try again in a few minutes.`,
-    ``,
-    `You can also call us: +91 40 2320 2255`,
-  ].join("\n");
-}
-
-export function buildHelpReply(): string {
-  return [
-    `🏷️ *Wall King Stock Bot — Help*`,
-    ``,
-    `Send a design number to check availability:`,
-    `  • 7517-04`,
-    `  • ONYX-102`,
-    `  • Need stock for BEL-804`,
-    ``,
-    `Commands:`,
-    `  *HELP*  — Show this menu`,
-    `  *AGENT* — Request human assistance`,
-    `  *ORDER* — Place an order enquiry`,
-    ``,
-    `Stock is subject to final order confirmation.`,
   ].join("\n");
 }
 
 export function buildAgentReply(): string {
   return [
     `👤 Your request has been logged.`,
-    ``,
     `A Wall King team member will contact you shortly.`,
     ``,
     `Business hours: Mon–Sat · 10:30 – 20:00`,
     `Head Office: +91 40 2320 2255`,
   ].join("\n");
-}
-
-export function buildOrderReply(): string {
-  return [
-    `🛒 To place an order, please share:`,
-    ``,
-    `1. Design number(s)`,
-    `2. Required quantity (rolls)`,
-    `3. Delivery address / city`,
-    ``,
-    `A Wall King team member will confirm availability and pricing.`,
-  ].join("\n");
-}
-
-// ---------------------------------------------------------------------------
-// Special command detection
-// ---------------------------------------------------------------------------
-
-export type SpecialCommand = "HELP" | "AGENT" | "HUMAN" | "ORDER";
-
-export function detectSpecialCommand(text: string): SpecialCommand | null {
-  const upper = text.trim().toUpperCase();
-  if (upper === "HELP" || upper === "HI" || upper === "HELLO") return "HELP";
-  if (upper === "AGENT" || upper === "HUMAN") return "AGENT";
-  if (upper === "ORDER") return "ORDER";
-  return null;
-}
-
-export function buildSpecialCommandReply(cmd: SpecialCommand): string {
-  switch (cmd) {
-    case "HELP":
-      return buildHelpReply();
-    case "AGENT":
-    case "HUMAN":
-      return buildAgentReply();
-    case "ORDER":
-      return buildOrderReply();
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -190,12 +216,12 @@ export class SendMessageError extends Error {
 }
 
 /**
- * Sends a plain-text WhatsApp message via Meta Graph API.
- * Throws SendMessageError on API failure.
+ * Sends a message via Meta Graph API.
+ * `payload` can be a string (sent as text) or an interactive object payload.
  */
 export async function sendWhatsAppMessage(
   to: string,
-  text: string
+  payload: string | Record<string, any>
 ): Promise<SendMessageResult> {
   const accessToken = getEnv("META_WA_ACCESS_TOKEN");
   const phoneNumberId = getEnv("META_WA_PHONE_NUMBER_ID");
@@ -207,11 +233,9 @@ export async function sendWhatsAppMessage(
     messaging_product: "whatsapp",
     recipient_type: "individual",
     to: to.replace(/^\+/, ""), // Meta expects digits only
-    type: "text",
-    text: {
-      preview_url: false,
-      body: text,
-    },
+    ...(typeof payload === "string" 
+         ? { type: "text", text: { preview_url: false, body: payload } }
+         : payload)
   };
 
   const res = await fetch(url, {
