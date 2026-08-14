@@ -242,6 +242,7 @@ async function processMessage(
       if (id.startsWith("design_")) {
         // They selected a design from the list, treat it as a lookup query
         messageText = id.replace("design_", "");
+        interactivePayload = null; // Nullify so it falls through to the text lookup logic below
       }
     }
 
