@@ -19,6 +19,12 @@ import {
 } from "@/lib/stock-service";
 import {
   sendWhatsAppMessage,
+  buildAvailableReply,
+  buildOutOfStockReply,
+  buildNotFoundReply,
+  buildSafeFailureReply,
+  detectSpecialCommand,
+  buildSpecialCommandReply,
   buildQuickOrderSummaryReply,
   buildUnknownFormatReply,
   buildCheckoutReceiptReply,
