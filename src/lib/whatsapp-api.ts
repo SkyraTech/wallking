@@ -50,6 +50,63 @@ export function buildAvailableReply(item: StockLookupResult): string {
   return lines;
 }
 
+// NEW: Interactive Button Reply for Stock Available
+export function buildStockButtonsReply(item: StockLookupResult, hasCartItems: boolean): any {
+  const buttons: any[] = [
+    { type: "reply", reply: { id: `order_${item.designNo}`, title: "🛒 Order This" } }
+  ];
+  if (hasCartItems) {
+    buttons.push({ type: "reply", reply: { id: "checkout", title: "✅ Checkout Cart" } });
+  }
+
+  return {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: buildAvailableReply(item) },
+      action: { buttons }
+    }
+  };
+}
+
+// NEW: Quantity Prompt
+export function buildQuantityPromptReply(designNo: string): string {
+  return `How many rolls of *${designNo}* would you like to order?\n\n(Please type a number, e.g., 150)`;
+}
+
+// NEW: Order Confirmation (Added to Cart) for single flow
+export function buildOrderConfirmationReply(designNo: string, quantity: number): any {
+  return {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: `🛒 *Added to Cart!*\n\nWe have added *${quantity} rolls* of *${designNo}* to your order cart.\n\nYou can add more designs or checkout now.` },
+      action: {
+        buttons: [
+          { type: "reply", reply: { id: "checkout", title: "✅ Checkout Cart" } }
+        ]
+      }
+    }
+  };
+}
+
+// NEW: Insufficient Stock Prompt
+export function buildInsufficientStockReply(item: StockLookupResult, requestedQty: number): any {
+  return {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: `⚠️ *Insufficient Stock*\n\nYou requested ${requestedQty} rolls of *${item.designNo}*, but we only have *${item.quantityRolls} rolls* available.\n\nHow would you like to proceed?` },
+      action: {
+        buttons: [
+          { type: "reply", reply: { id: `buy_partial_${item.designNo}_${item.quantityRolls}`, title: `🛒 Buy ${item.quantityRolls}` } },
+          { type: "reply", reply: { id: `wait_${item.designNo}_${requestedQty}`, title: "⏳ Ask Wait Time" } }
+        ]
+      }
+    }
+  };
+}
+
 // NEW: Quick Order Summary
 export function buildQuickOrderSummaryReply(
   successes: { designNo: string; qty: number }[],
@@ -150,8 +207,19 @@ export function buildDealerRejectionReply(): string {
   return "❌ Sorry, your recent order could not be fulfilled at this time. Please contact support for alternatives.";
 }
 
-export function buildOutOfStockReply(designNo: string): string {
-  return `📦 Wall King Stock Update\n\nDesign No: *${designNo}*\nStatus: ❌ *Out of Stock*`;
+export function buildOutOfStockReply(designNo: string): any {
+  return {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: `📦 Wall King Stock Update\n\nDesign No: *${designNo}*\nStatus: ❌ *Out of Stock*` },
+      action: {
+        buttons: [
+          { type: "reply", reply: { id: `wait_${designNo}_0`, title: "⏳ Ask Wait Time" } }
+        ]
+      }
+    }
+  };
 }
 
 export function buildNotFoundReply(query: string): string {

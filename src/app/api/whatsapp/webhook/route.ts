@@ -25,6 +25,10 @@ import {
   buildSafeFailureReply,
   detectSpecialCommand,
   buildSpecialCommandReply,
+  buildStockButtonsReply,
+  buildQuantityPromptReply,
+  buildOrderConfirmationReply,
+  buildInsufficientStockReply,
   buildQuickOrderSummaryReply,
   buildUnknownFormatReply,
   buildCheckoutReceiptReply,
@@ -102,13 +106,109 @@ async function processMessage(
       return (data && data.length > 0) || false;
     };
 
+    // 1. Fetch previous state to handle Quantity inputs
+    const { data: previousEvents } = await db
+      .from("whatsapp_inbound_events")
+      .select("processing_status, normalized_design_number")
+      .eq("sender_reference", maskedPhone)
+      .order("created_at", { ascending: false })
+      .limit(5);
+      
+    const previousEvent = previousEvents?.find((e, i) => i > 0 && e.processing_status !== "received") || null;
+
+    // --- STATE MACHINE: Quantity Validation ---
+    if (!interactivePayload && previousEvent?.processing_status === "waiting_for_quantity" && previousEvent.normalized_design_number) {
+      // Only process as quantity if it's purely a number (to prevent QuickOrders from getting trapped here)
+      const isPureNumber = /^\s*\d+\s*$/.test(messageText);
+      if (isPureNumber) {
+        const qty = parseInt(messageText.trim(), 10);
+        if (qty > 0) {
+          const designNo = previousEvent.normalized_design_number;
+          const stockResult = await lookupStock(designNo);
+          
+          if (stockResult.found && stockResult.available) {
+            if (qty <= stockResult.quantityRolls) {
+              // Sufficient stock!
+              await createOrder({
+                senderPhone,
+                designNumber: stockResult.designNo,
+                brand: stockResult.brand,
+                quantityRequested: qty
+              });
+              
+              const reply = buildOrderConfirmationReply(stockResult.designNo, qty);
+              const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
+              
+              await db.from("whatsapp_inbound_events").update({
+                processing_status: "order_confirmed",
+                reply_message_id: messageId,
+                normalized_design_number: stockResult.designNo
+              }).eq("id", eventRowId);
+              return;
+            } else {
+              // Insufficient stock!
+              const reply = buildInsufficientStockReply(stockResult, qty);
+              const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
+              
+              await db.from("whatsapp_inbound_events").update({
+                processing_status: "insufficient_stock",
+                reply_message_id: messageId,
+                normalized_design_number: stockResult.designNo
+              }).eq("id", eventRowId);
+              return;
+            }
+          }
+        }
+      }
+    }
+
     // --- STATE MACHINE: Interactive Button/List Taps ---
     if (interactivePayload) {
       const id = interactivePayload.button_reply?.id || interactivePayload.list_reply?.id;
       
       if (!id) return;
 
+      if (id.startsWith("order_")) {
+        const designNo = id.replace("order_", "");
+        const reply = buildQuantityPromptReply(designNo);
+        const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
+        await db.from("whatsapp_inbound_events").update({
+          processing_status: "waiting_for_quantity",
+          reply_message_id: messageId,
+          normalized_design_number: designNo
+        }).eq("id", eventRowId);
+        return;
+      }
 
+      if (id.startsWith("buy_partial_")) {
+        const parts = id.replace("buy_partial_", "").split("_");
+        const qty = parseInt(parts.pop() || "0", 10);
+        const designNo = parts.join("_");
+        
+        const stockResult = await lookupStock(designNo);
+        await createOrder({
+          senderPhone,
+          designNumber: stockResult.found ? stockResult.designNo : designNo,
+          brand: stockResult.found ? stockResult.brand : "Unknown",
+          quantityRequested: qty
+        });
+        
+        const reply = buildOrderConfirmationReply(stockResult.found ? stockResult.designNo : designNo, qty);
+        const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
+        await db.from("whatsapp_inbound_events").update({
+          processing_status: "order_confirmed_partial",
+          reply_message_id: messageId,
+          normalized_design_number: designNo
+        }).eq("id", eventRowId);
+        return;
+      }
+
+      if (id.startsWith("wait_")) {
+         const reply = buildAgentReply();
+         const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
+         await db.from("whatsapp_inbound_events").update({ processing_status: "backorder_agent", reply_message_id: messageId }).eq("id", eventRowId);
+         return;
+      }
 
       if (id === "checkout") {
         // Fetch cart items
@@ -251,7 +351,7 @@ async function processMessage(
         reply = buildOutOfStockReply(stockResult.designNo);
         status = "out_of_stock";
       } else {
-        reply = buildAvailableReply(stockResult);
+        reply = buildStockButtonsReply(stockResult, hasCartItems);
         status = "replied";
       }
 
