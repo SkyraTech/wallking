@@ -180,6 +180,43 @@ export function extractDesignNumberFromText(text: string): string | null {
   return null;
 }
 
+/**
+ * Parses free text containing multiple design codes and quantities.
+ * Example: "BEL-804 100, LOH-201 50" -> [{designCode: "BEL-804", quantity: 100}, ...]
+ */
+export function parseQuickOrderText(text: string): { designCode: string; quantity: number }[] {
+  const results: { designCode: string; quantity: number }[] = [];
+  if (!text) return results;
+
+  const upper = text.toUpperCase();
+  const designPattern = /([0-9]{3,}[-\s_][0-9]{1,}|[A-Z]{2,6}[-_][0-9]{1,}[A-Z0-9]*|[A-Z]{2,6}[0-9]{2,}[A-Z0-9]*|[0-9]{4,})/g;
+  
+  // Split by comma or newline so each line/segment is evaluated independently
+  const chunks = upper.split(/[,;\n]/);
+  
+  for (const chunk of chunks) {
+    const designMatches = [...chunk.matchAll(designPattern)];
+    if (designMatches.length > 0) {
+      // Find the design code
+      const designRaw = designMatches[0][1];
+      const norm = normalizeDesignNumber(designRaw);
+      
+      // Remove the design code from the chunk so we can find the standalone quantity
+      const withoutDesign = chunk.replace(designMatches[0][0], ' ');
+      
+      // Look for the first standalone number in the rest of the chunk
+      const qtyMatch = withoutDesign.match(/\b(\d+)\b/);
+      if (qtyMatch) {
+         const qty = parseInt(qtyMatch[1], 10);
+         if (qty > 0 && norm.length >= 3) {
+            results.push({ designCode: norm, quantity: qty });
+         }
+      }
+    }
+  }
+  return results;
+}
+
 // ---------------------------------------------------------------------------
 // Stock lookup — single source of truth
 // ---------------------------------------------------------------------------

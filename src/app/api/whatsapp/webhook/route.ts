@@ -12,25 +12,15 @@ import {
   StockLookupError,
   extractDesignNumberFromText,
   normalizeDesignNumber,
+  parseQuickOrderText,
   fetchBrands,
   fetchDesignsByBrand,
   createOrder
 } from "@/lib/stock-service";
 import {
   sendWhatsAppMessage,
-  buildAvailableReply,
-  buildOutOfStockReply,
-  buildNotFoundReply,
-  buildSafeFailureReply,
-  buildAgentReply,
-  detectSpecialCommand,
-  buildSpecialCommandReply,
-  buildStockButtonsReply,
-  buildQuantityPromptReply,
-  buildOrderConfirmationReply,
-  buildInsufficientStockReply,
-  buildBrandsListReply,
-  buildDesignsListReply,
+  buildQuickOrderSummaryReply,
+  buildUnknownFormatReply,
   buildCheckoutReceiptReply,
   buildAdminApprovalRequest,
   buildDealerApprovalReply,
@@ -100,60 +90,11 @@ async function processMessage(
   const maskedPhone = maskPhone(senderPhone);
 
   try {
-    // 1. Fetch previous state to handle Quantity inputs
-    const { data: previousEvents } = await db
-      .from("whatsapp_inbound_events")
-      .select("processing_status, normalized_design_number")
-      .eq("sender_reference", maskedPhone)
-      .order("created_at", { ascending: false })
-      .limit(5);
-      
-    const previousEvent = previousEvents?.find((e, i) => i > 0 && e.processing_status !== "received") || null;
-
-    // --- STATE MACHINE: Quantity Validation ---
-    if (!interactivePayload && previousEvent?.processing_status === "waiting_for_quantity" && previousEvent.normalized_design_number) {
-      const qtyMatch = messageText.match(/\d+/);
-      if (qtyMatch) {
-        const qty = parseInt(qtyMatch[0], 10);
-        if (qty > 0) {
-          const designNo = previousEvent.normalized_design_number;
-          const stockResult = await lookupStock(designNo);
-          
-          if (stockResult.found && stockResult.available) {
-            if (qty <= stockResult.quantityRolls) {
-              // Sufficient stock!
-              await createOrder({
-                senderPhone,
-                designNumber: stockResult.designNo,
-                brand: stockResult.brand,
-                quantityRequested: qty
-              });
-              
-              const reply = buildOrderConfirmationReply(stockResult.designNo, qty);
-              const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
-              
-              await db.from("whatsapp_inbound_events").update({
-                processing_status: "order_confirmed",
-                reply_message_id: messageId,
-                normalized_design_number: stockResult.designNo
-              }).eq("id", eventRowId);
-              return;
-            } else {
-              // Insufficient stock!
-              const reply = buildInsufficientStockReply(stockResult, qty);
-              const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
-              
-              await db.from("whatsapp_inbound_events").update({
-                processing_status: "insufficient_stock",
-                reply_message_id: messageId,
-                normalized_design_number: stockResult.designNo
-              }).eq("id", eventRowId);
-              return;
-            }
-          }
-        }
-      }
-    }
+    // Helper to check if cart has items
+    const checkCart = async () => {
+      const { data } = await db.from("whatsapp_orders").select("id").eq("sender_phone", senderPhone).eq("status", "in_cart").limit(1);
+      return (data && data.length > 0) || false;
+    };
 
     // --- STATE MACHINE: Interactive Button/List Taps ---
     if (interactivePayload) {
@@ -161,87 +102,7 @@ async function processMessage(
       
       if (!id) return;
 
-      if (id === "menu" || id === "check_another" || id === "add_another") {
-        const { brands, hasNextPage } = await fetchBrands(1);
-        const reply = buildBrandsListReply(brands, 1, hasNextPage);
-        const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
-        await db.from("whatsapp_inbound_events").update({ processing_status: "menu_brands_1", reply_message_id: messageId }).eq("id", eventRowId);
-        return;
-      }
 
-      if (id.startsWith("brands_page_")) {
-        const page = parseInt(id.replace("brands_page_", ""), 10);
-        const { brands, hasNextPage } = await fetchBrands(page);
-        const reply = buildBrandsListReply(brands, page, hasNextPage);
-        const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
-        await db.from("whatsapp_inbound_events").update({ processing_status: `menu_brands_${page}`, reply_message_id: messageId }).eq("id", eventRowId);
-        return;
-      }
-
-      if (id.startsWith("brand_")) {
-        const brand = id.replace("brand_", "");
-        const { designs, hasNextPage } = await fetchDesignsByBrand(brand, 1);
-        const reply = buildDesignsListReply(brand, designs, 1, hasNextPage);
-        const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
-        await db.from("whatsapp_inbound_events").update({ processing_status: `menu_designs_${brand}_1`, reply_message_id: messageId }).eq("id", eventRowId);
-        return;
-      }
-
-      if (id.startsWith("designs_page_")) {
-        // id format: designs_page_BRANDNAME_PAGENUMBER
-        const parts = id.replace("designs_page_", "").split("_");
-        const page = parseInt(parts.pop() || "1", 10);
-        const brand = parts.join("_");
-        const { designs, hasNextPage } = await fetchDesignsByBrand(brand, page);
-        const reply = buildDesignsListReply(brand, designs, page, hasNextPage);
-        const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
-        await db.from("whatsapp_inbound_events").update({ processing_status: `menu_designs_${brand}_${page}`, reply_message_id: messageId }).eq("id", eventRowId);
-        return;
-      }
-
-      if (id.startsWith("order_")) {
-        const designNo = id.replace("order_", "");
-        const reply = buildQuantityPromptReply(designNo);
-        const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
-        await db.from("whatsapp_inbound_events").update({
-          processing_status: "waiting_for_quantity",
-          reply_message_id: messageId,
-          normalized_design_number: designNo
-        }).eq("id", eventRowId);
-        return;
-      }
-
-      if (id.startsWith("buy_partial_")) {
-        // id format: buy_partial_DESIGN_QTY
-        const parts = id.replace("buy_partial_", "").split("_");
-        const qty = parseInt(parts.pop() || "0", 10);
-        const designNo = parts.join("_");
-        
-        const stockResult = await lookupStock(designNo);
-        await createOrder({
-          senderPhone,
-          designNumber: stockResult.found ? stockResult.designNo : designNo,
-          brand: stockResult.found ? stockResult.brand : "Unknown",
-          quantityRequested: qty
-        });
-        
-        const reply = buildOrderConfirmationReply(stockResult.found ? stockResult.designNo : designNo, qty);
-        const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
-        await db.from("whatsapp_inbound_events").update({
-          processing_status: "order_confirmed_partial",
-          reply_message_id: messageId,
-          normalized_design_number: designNo
-        }).eq("id", eventRowId);
-        return;
-      }
-
-      if (id.startsWith("wait_")) {
-         // Log backorder inquiry and send agent reply
-         const reply = buildAgentReply();
-         const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
-         await db.from("whatsapp_inbound_events").update({ processing_status: "backorder_agent", reply_message_id: messageId }).eq("id", eventRowId);
-         return;
-      }
 
       if (id === "checkout") {
         // Fetch cart items
@@ -295,14 +156,9 @@ async function processMessage(
         return;
       }
 
-      if (id.startsWith("design_")) {
-        // They selected a design from the list, treat it as a lookup query
-        messageText = id.replace("design_", "");
-        interactivePayload = null; // Nullify so it falls through to the text lookup logic below
-      }
     }
 
-    // --- STATE MACHINE: Website Templates & Manual Lookups ---
+    // --- STATE MACHINE: Text Lookups & Quick Orders ---
     if (!interactivePayload) {
       // 1. Check special commands first
       const command = detectSpecialCommand(messageText);
@@ -313,36 +169,56 @@ async function processMessage(
         return;
       }
 
-      // 2. Check for Website Order Request Template
-      const isWebsiteOrderRequest = messageText.includes("Order Request:") && messageText.includes("Design No:");
-      if (isWebsiteOrderRequest) {
-        const match = messageText.match(/Design No:\s*([A-Za-z0-9-]+)/i);
-        if (match && match[1]) {
-           const designNo = normalizeDesignNumber(match[1]);
-           const reply = buildQuantityPromptReply(designNo);
-           const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
-           await db.from("whatsapp_inbound_events").update({
-             processing_status: "waiting_for_quantity",
-             reply_message_id: messageId,
-             normalized_design_number: designNo
-           }).eq("id", eventRowId);
-           return;
+      // 2. Parse Quick Orders (Multiple items with quantity)
+      const quickOrders = parseQuickOrderText(messageText);
+
+      if (quickOrders.length > 0) {
+        const successes: { designNo: string; qty: number }[] = [];
+        const failures: { designNo: string; reason: string }[] = [];
+
+        for (const item of quickOrders) {
+          try {
+            const stockResult = await lookupStock(item.designCode);
+            if (!stockResult.found) {
+              failures.push({ designNo: item.designCode, reason: "Design not found" });
+            } else if (!stockResult.available) {
+              failures.push({ designNo: stockResult.designNo, reason: "Out of stock" });
+            } else if (item.quantity > stockResult.quantityRolls) {
+              failures.push({ designNo: stockResult.designNo, reason: `Only ${stockResult.quantityRolls} rolls available` });
+            } else {
+              await createOrder({
+                senderPhone,
+                designNumber: stockResult.designNo,
+                brand: stockResult.brand,
+                quantityRequested: item.quantity
+              });
+              successes.push({ designNo: stockResult.designNo, qty: item.quantity });
+            }
+          } catch (err) {
+            failures.push({ designNo: item.designCode, reason: "Database error" });
+          }
         }
-      }
 
-      // 3. Try to extract design number
-      const designNo = extractDesignNumberFromText(messageText);
-
-      // 4. If no design number found, treat as Greeting -> Main Menu
-      if (!designNo) {
-        const { brands, hasNextPage } = await fetchBrands(1);
-        const reply = buildBrandsListReply(brands, 1, hasNextPage);
+        const hasCartItems = await checkCart();
+        const reply = buildQuickOrderSummaryReply(successes, failures, hasCartItems);
         const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
-        await db.from("whatsapp_inbound_events").update({ processing_status: "menu_brands_1", reply_message_id: messageId }).eq("id", eventRowId);
+        await db.from("whatsapp_inbound_events").update({ processing_status: "quick_order_processed", reply_message_id: messageId }).eq("id", eventRowId);
         return;
       }
 
-      // 5. Stock Lookup
+      // 3. Fallback: Single Design Stock Check (no quantity)
+      const designNo = extractDesignNumberFromText(messageText);
+
+      if (!designNo) {
+        // Unknown format
+        const hasCartItems = await checkCart();
+        const reply = buildUnknownFormatReply(hasCartItems);
+        const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
+        await db.from("whatsapp_inbound_events").update({ processing_status: "unknown_format", reply_message_id: messageId }).eq("id", eventRowId);
+        return;
+      }
+
+      // Stock Lookup
       await db.from("whatsapp_inbound_events").update({ normalized_design_number: designNo }).eq("id", eventRowId);
 
       let stockResult;
@@ -360,6 +236,7 @@ async function processMessage(
 
       let reply: any;
       let status: string;
+      const hasCartItems = await checkCart();
 
       if (!stockResult.found) {
         reply = buildNotFoundReply(designNo);
@@ -368,8 +245,20 @@ async function processMessage(
         reply = buildOutOfStockReply(stockResult.designNo);
         status = "out_of_stock";
       } else {
-        reply = buildStockButtonsReply(stockResult);
+        reply = buildAvailableReply(stockResult);
         status = "replied";
+      }
+
+      // Append checkout button if they have items in cart
+      if (hasCartItems && typeof reply === "string") {
+        reply = {
+          type: "interactive",
+          interactive: {
+            type: "button",
+            body: { text: reply },
+            action: { buttons: [{ type: "reply", reply: { id: "checkout", title: "✅ Checkout Cart" } }] }
+          }
+        };
       }
 
       const { messageId: replyId } = await sendWhatsAppMessage(senderPhone, reply);

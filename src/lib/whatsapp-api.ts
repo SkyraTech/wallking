@@ -50,43 +50,57 @@ export function buildAvailableReply(item: StockLookupResult): string {
   return lines;
 }
 
-// NEW: Interactive Button Reply for Stock Available
-export function buildStockButtonsReply(item: StockLookupResult): any {
-  return {
-    type: "interactive",
-    interactive: {
-      type: "button",
-      body: { text: buildAvailableReply(item) },
-      action: {
-        buttons: [
-          { type: "reply", reply: { id: `order_${item.designNo}`, title: "🛒 Order This" } },
-          { type: "reply", reply: { id: "check_another", title: "🔎 Check Another" } }
-        ]
+// NEW: Quick Order Summary
+export function buildQuickOrderSummaryReply(
+  successes: { designNo: string; qty: number }[],
+  failures: { designNo: string; reason: string }[],
+  hasCartItems: boolean
+): any {
+  let replyText = `🛒 *Order Summary*\n\n`;
+  if (successes.length > 0) {
+    replyText += `✅ *Added to Cart:*\n`;
+    successes.forEach(s => replyText += `• ${s.qty} rolls of ${s.designNo}\n`);
+  }
+  if (failures.length > 0) {
+    replyText += `\n⚠️ *Could Not Add:*\n`;
+    failures.forEach(f => replyText += `• ${f.designNo} (${f.reason})\n`);
+  }
+  
+  if (hasCartItems || successes.length > 0) {
+    return {
+      type: "interactive",
+      interactive: {
+        type: "button",
+        body: { text: replyText.trim() },
+        action: { buttons: [{ type: "reply", reply: { id: "checkout", title: "✅ Checkout Cart" } }] }
       }
-    }
-  };
+    };
+  }
+  return replyText.trim();
 }
 
-// NEW: Quantity Prompt
-export function buildQuantityPromptReply(designNo: string): string {
-  return `How many rolls of *${designNo}* would you like to order?\n\n(Please type a number, e.g., 150)`;
-}
+export function buildUnknownFormatReply(hasCartItems: boolean): any {
+  const text = [
+    `Welcome to Wall King! 📦`,
+    ``,
+    `To place an order, please type the *Design Code* followed by the *Quantity*. You can order multiple items at once separated by commas!`,
+    ``,
+    `*Example:* BEL-804 100, LOH-201 50`,
+    ``,
+    `To just check live stock, type a single Design Code (e.g. BEL-804).`
+  ].join("\n");
 
-// NEW: Order Confirmation (Added to Cart)
-export function buildOrderConfirmationReply(designNo: string, quantity: number): any {
-  return {
-    type: "interactive",
-    interactive: {
-      type: "button",
-      body: { text: `🛒 *Added to Cart!*\n\nWe have added *${quantity} rolls* of *${designNo}* to your order cart.\n\nYou can add more designs or checkout now.` },
-      action: {
-        buttons: [
-          { type: "reply", reply: { id: "add_another", title: "🔎 Add Another" } },
-          { type: "reply", reply: { id: "checkout", title: "✅ Checkout Cart" } }
-        ]
+  if (hasCartItems) {
+    return {
+      type: "interactive",
+      interactive: {
+        type: "button",
+        body: { text },
+        action: { buttons: [{ type: "reply", reply: { id: "checkout", title: "✅ Checkout Cart" } }] }
       }
-    }
-  };
+    };
+  }
+  return text;
 }
 
 // NEW: Checkout Receipt
@@ -136,84 +150,8 @@ export function buildDealerRejectionReply(): string {
   return "❌ Sorry, your recent order could not be fulfilled at this time. Please contact support for alternatives.";
 }
 
-// NEW: Insufficient Stock
-export function buildInsufficientStockReply(item: StockLookupResult, requestedQty: number): any {
-  return {
-    type: "interactive",
-    interactive: {
-      type: "button",
-      body: { text: `⚠️ *Insufficient Stock*\n\nYou requested ${requestedQty} rolls of *${item.designNo}*, but we only have *${item.quantityRolls} rolls* available.\n\nHow would you like to proceed?` },
-      action: {
-        buttons: [
-          { type: "reply", reply: { id: `buy_partial_${item.designNo}_${item.quantityRolls}`, title: `🛒 Buy ${item.quantityRolls}` } },
-          { type: "reply", reply: { id: `wait_${item.designNo}_${requestedQty}`, title: "⏳ Ask Wait Time" } },
-          { type: "reply", reply: { id: "check_another", title: "🔎 Check Another" } }
-        ]
-      }
-    }
-  };
-}
-
-// NEW: Interactive List for Brands
-export function buildBrandsListReply(brands: string[], page: number, hasNextPage: boolean): any {
-  const rows = brands.map(b => ({ id: `brand_${b}`, title: b.slice(0, 24) }));
-  if (hasNextPage) {
-    rows.push({ id: `brands_page_${page + 1}`, title: "▶ Show More Brands" });
-  }
-
-  return {
-    type: "interactive",
-    interactive: {
-      type: "list",
-      header: { type: "text", text: "🏢 Wall King Brands" },
-      body: { text: "Please select a Brand to view its designs:" },
-      action: {
-        button: "View Brands",
-        sections: [{ title: `Brands (Page ${page})`, rows }]
-      }
-    }
-  };
-}
-
-// NEW: Interactive List for Designs
-export function buildDesignsListReply(brand: string, designs: string[], page: number, hasNextPage: boolean): any {
-  const rows = designs.map(d => ({ id: `design_${d}`, title: d.slice(0, 24) }));
-  if (hasNextPage) {
-    rows.push({ id: `designs_page_${brand}_${page + 1}`, title: "▶ Show More Designs" });
-  }
-  // Add back button
-  if (rows.length < 10) {
-    rows.push({ id: "menu", title: "🔙 Back to Brands" });
-  }
-
-  return {
-    type: "interactive",
-    interactive: {
-      type: "list",
-      header: { type: "text", text: `${brand} Designs` },
-      body: { text: `Please select a Design:` },
-      action: {
-        button: "View Designs",
-        sections: [{ title: `Designs (Page ${page})`, rows }]
-      }
-    }
-  };
-}
-
-export function buildOutOfStockReply(designNo: string): any {
-  return {
-    type: "interactive",
-    interactive: {
-      type: "button",
-      body: { text: `📦 Wall King Stock Update\n\nDesign No: *${designNo}*\nStatus: ❌ *Out of Stock*` },
-      action: {
-        buttons: [
-          { type: "reply", reply: { id: `wait_${designNo}_0`, title: "⏳ Ask Wait Time" } },
-          { type: "reply", reply: { id: "check_another", title: "🔎 Check Another" } }
-        ]
-      }
-    }
-  };
+export function buildOutOfStockReply(designNo: string): string {
+  return `📦 Wall King Stock Update\n\nDesign No: *${designNo}*\nStatus: ❌ *Out of Stock*`;
 }
 
 export function buildNotFoundReply(query: string): string {
