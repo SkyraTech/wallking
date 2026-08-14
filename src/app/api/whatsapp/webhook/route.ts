@@ -261,87 +261,82 @@ export async function POST(req: NextRequest) {
     return new NextResponse("Bad Request — invalid JSON", { status: 400 });
   }
 
-  // 4. Return 200 immediately (Meta requires fast acknowledgment)
-  //    Process async via setImmediate (MVP — upgrade to queue for production)
-  const immediateResponse = new NextResponse("OK", { status: 200 });
+  // 4. Extract and process messages (Vercel Serverless requires awaiting this)
+  try {
+    const entries = (payload.entry as unknown[]) ?? [];
+    for (const entry of entries) {
+      const changes = ((entry as Record<string, unknown>).changes as unknown[]) ?? [];
+      for (const change of changes) {
+        const value = (change as Record<string, unknown>).value as Record<string, unknown>;
+        if (!value || (value.object as string) === "page") continue;
 
-  // 5. Extract and process messages asynchronously
-  setImmediate(async () => {
-    try {
-      const entries = (payload.entry as unknown[]) ?? [];
-      for (const entry of entries) {
-        const changes = ((entry as Record<string, unknown>).changes as unknown[]) ?? [];
-        for (const change of changes) {
-          const value = (change as Record<string, unknown>).value as Record<string, unknown>;
-          if (!value || (value.object as string) === "page") continue;
+        const messages = (value.messages as unknown[]) ?? [];
+        for (const msg of messages) {
+          const message = msg as Record<string, unknown>;
 
-          const messages = (value.messages as unknown[]) ?? [];
-          for (const msg of messages) {
-            const message = msg as Record<string, unknown>;
+          // Only process inbound text messages
+          if (message.type !== "text") continue;
 
-            // Only process inbound text messages
-            if (message.type !== "text") continue;
+          const metaMessageId = message.id as string;
+          const senderPhone = message.from as string;
+          const messageText =
+            ((message.text as Record<string, unknown>)?.body as string) ?? "";
 
-            const metaMessageId = message.id as string;
-            const senderPhone = message.from as string;
-            const messageText =
-              ((message.text as Record<string, unknown>)?.body as string) ?? "";
+          if (!metaMessageId || !senderPhone || !messageText.trim()) continue;
 
-            if (!metaMessageId || !senderPhone || !messageText.trim()) continue;
+          const maskedPhone = maskPhone(senderPhone);
 
-            const maskedPhone = maskPhone(senderPhone);
+          // 5. Deduplicate — persist before processing
+          //    ON CONFLICT DO NOTHING prevents duplicate replies
+          const { data: inserted, error: insertError } = await db
+            .from("whatsapp_inbound_events")
+            .insert({
+              meta_message_id: metaMessageId,
+              sender_reference: maskedPhone,
+              message_text: messageText.slice(0, 1000),
+              processing_status: "received",
+            })
+            .select("id")
+            .maybeSingle();
 
-            // 6. Deduplicate — persist before processing
-            //    ON CONFLICT DO NOTHING prevents duplicate replies
-            const { data: inserted, error: insertError } = await db
-              .from("whatsapp_inbound_events")
-              .insert({
-                meta_message_id: metaMessageId,
-                sender_reference: maskedPhone,
-                message_text: messageText.slice(0, 1000),
-                processing_status: "received",
-              })
-              .select("id")
-              .maybeSingle();
-
-            if (insertError) {
-              // Unique constraint violation = duplicate webhook delivery
-              if (insertError.code === "23505") {
-                console.log(
-                  `[webhook] Duplicate message ${metaMessageId} — skipping`
-                );
-                continue;
-              }
-              // Other DB error — log and skip (don't send reply for uknown state)
-              console.error(
-                `[webhook] Failed to persist event ${metaMessageId}:`,
-                insertError.message
-              );
-              continue;
-            }
-
-            if (!inserted) {
-              // Race: another instance already handled this message
+          if (insertError) {
+            // Unique constraint violation = duplicate webhook delivery
+            if (insertError.code === "23505") {
               console.log(
-                `[webhook] Race-condition duplicate ${metaMessageId} — skipping`
+                `[webhook] Duplicate message ${metaMessageId} — skipping`
               );
               continue;
             }
-
-            // 7. Process message (async, after 200 already sent)
-            await processMessage(
-              metaMessageId,
-              senderPhone,
-              messageText,
-              inserted.id
+            // Other DB error — log and skip (don't send reply for uknown state)
+            console.error(
+              `[webhook] Failed to persist event ${metaMessageId}:`,
+              insertError.message
             );
+            continue;
           }
+
+          if (!inserted) {
+            // Race: another instance already handled this message
+            console.log(
+              `[webhook] Race-condition duplicate ${metaMessageId} — skipping`
+            );
+            continue;
+          }
+
+          // 6. Process message
+          await processMessage(
+            metaMessageId,
+            senderPhone,
+            messageText,
+            inserted.id
+          );
         }
       }
-    } catch (err) {
-      console.error("[webhook] Top-level processing error:", err);
     }
-  });
+  } catch (err) {
+    console.error("[webhook] Top-level processing error:", err);
+  }
 
-  return immediateResponse;
+  // 7. Return 200 OK to Meta
+  return new NextResponse("OK", { status: 200 });
 }
