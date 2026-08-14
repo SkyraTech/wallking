@@ -23,6 +23,7 @@ import {
   buildOutOfStockReply,
   buildNotFoundReply,
   buildSafeFailureReply,
+  buildAgentReply,
   detectSpecialCommand,
   buildSpecialCommandReply,
   buildStockButtonsReply,
