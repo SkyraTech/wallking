@@ -741,23 +741,55 @@ export async function fetchDesignsByBrand(brand: string, page: number): Promise<
   return { designs, hasNextPage };
 }
 
-export async function createOrder(params: {
+export async function createOrder(payload: {
   senderPhone: string;
   designNumber: string;
   brand: string;
   quantityRequested: number;
-  status?: string;
-}): Promise<void> {
-  const { error } = await db.from("whatsapp_orders").insert({
-    sender_phone: params.senderPhone,
-    design_number: params.designNumber,
-    brand: params.brand,
-    quantity_requested: params.quantityRequested,
-    status: params.status || 'in_cart',
-  });
+}) {
+  const { senderPhone, designNumber, brand, quantityRequested } = payload;
 
-  if (error) {
-    throw new Error(`Failed to create order: ${error.message}`);
+  if (quantityRequested === 0) {
+    // Delete item from cart if qty is 0
+    const { error } = await db.from("whatsapp_orders")
+      .delete()
+      .eq("sender_phone", senderPhone)
+      .eq("design_number", designNumber)
+      .eq("status", "in_cart");
+      
+    if (error) {
+      console.error("Error deleting cart item:", error);
+      throw error;
+    }
+    return;
+  }
+
+  // Check if item already in cart
+  const { data: existing } = await db.from("whatsapp_orders")
+    .select("id")
+    .eq("sender_phone", senderPhone)
+    .eq("design_number", designNumber)
+    .eq("status", "in_cart")
+    .single();
+
+  if (existing) {
+    // Overwrite quantity
+    const { error } = await db.from("whatsapp_orders")
+      .update({ quantity_requested: quantityRequested })
+      .eq("id", existing.id);
+    if (error) throw error;
+  } else {
+    // Insert new item
+    const { error } = await db.from("whatsapp_orders").insert({
+      sender_phone: senderPhone,
+      design_number: designNumber,
+      brand,
+      quantity_requested: quantityRequested,
+      status: "in_cart"
+    });
+    if (error) {
+      console.error("Error creating order:", error);
+      throw error;
+    }
   }
 }
-

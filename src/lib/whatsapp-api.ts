@@ -56,7 +56,7 @@ export function buildStockButtonsReply(item: StockLookupResult, hasCartItems: bo
     { type: "reply", reply: { id: `order_${item.designNo}`, title: "🛒 Order This" } }
   ];
   if (hasCartItems) {
-    buttons.push({ type: "reply", reply: { id: "checkout", title: "✅ Checkout Cart" } });
+    buttons.push({ type: "reply", reply: { id: "view_cart", title: "🛒 View Cart" } });
   }
 
   return {
@@ -80,10 +80,10 @@ export function buildOrderConfirmationReply(designNo: string, quantity: number):
     type: "interactive",
     interactive: {
       type: "button",
-      body: { text: `🛒 *Added to Cart!*\n\nWe have added *${quantity} rolls* of *${designNo}* to your order cart.\n\nYou can add more designs or checkout now.` },
+      body: { text: `🛒 *Added to Cart!*\n\nWe have added *${quantity} rolls* of *${designNo}* to your order cart.\n\n💡 *Hint:* To check the availability for another item, simply reply with the Design Code and Quantity (e.g., LOH-201 50). Or tap Checkout when you are done!` },
       action: {
         buttons: [
-          { type: "reply", reply: { id: "checkout", title: "✅ Checkout Cart" } }
+          { type: "reply", reply: { id: "view_cart", title: "🛒 View Cart" } }
         ]
       }
     }
@@ -123,17 +123,21 @@ export function buildQuickOrderSummaryReply(
     failures.forEach(f => replyText += `• ${f.designNo} (${f.reason})\n`);
   }
   
+  // Add dynamic hint based on cart state
   if (hasCartItems || successes.length > 0) {
+    replyText += `\n💡 *Hint:* To check the availability for another item, simply reply with the Design Code and Quantity (e.g., LOH-201 50). Or tap View Cart when you are done!`;
     return {
       type: "interactive",
       interactive: {
         type: "button",
         body: { text: replyText.trim() },
-        action: { buttons: [{ type: "reply", reply: { id: "checkout", title: "✅ Checkout Cart" } }] }
+        action: { buttons: [{ type: "reply", reply: { id: "view_cart", title: "🛒 View Cart" } }] }
       }
     };
+  } else {
+    replyText += `\n💡 *Hint:* To check the availability for another item, simply reply with the Design Code and Quantity (e.g., LOH-201 50).`;
+    return replyText.trim();
   }
-  return replyText.trim();
 }
 
 export function buildUnknownFormatReply(hasCartItems: boolean): any {
@@ -153,11 +157,55 @@ export function buildUnknownFormatReply(hasCartItems: boolean): any {
       interactive: {
         type: "button",
         body: { text },
-        action: { buttons: [{ type: "reply", reply: { id: "checkout", title: "✅ Checkout Cart" } }] }
+        action: { buttons: [{ type: "reply", reply: { id: "view_cart", title: "🛒 View Cart" } }] }
       }
     };
   }
   return text;
+}
+
+// NEW: View Cart Reply
+export function buildViewCartReply(cartItems: any[]): any {
+  const lines = [
+    `🛒 *Your Current Cart*`,
+    ``,
+    ...cartItems.map(item => `• *${item.design_number}* — ${item.quantity_requested} rolls`),
+    ``,
+    `💡 *How to Edit:*`,
+    `• To change a quantity, simply resend the code (e.g., \`${cartItems[0]?.design_number || 'BEL-804'} 100\`).`,
+    `• To remove an item, send the code with 0 (e.g., \`${cartItems[0]?.design_number || 'BEL-804'} 0\`).`,
+    `• To add a new item, send a new code and quantity.`,
+  ];
+
+  return {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: lines.join("\n") },
+      action: {
+        buttons: [
+          { type: "reply", reply: { id: "checkout_confirm", title: "✅ Checkout Cart" } }
+        ]
+      }
+    }
+  };
+}
+
+// NEW: Checkout Confirmation Reply
+export function buildCheckoutConfirmationReply(): any {
+  return {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: `🚀 *Submit Order*\n\nPlease review your cart items. Tap Submit to send your order request to Wall King for final availability check and approval.` },
+      action: {
+        buttons: [
+          { type: "reply", reply: { id: "submit_order", title: "🚀 Yes, Submit" } },
+          { type: "reply", reply: { id: "view_cart", title: "🔙 Wait, Let me Edit" } }
+        ]
+      }
+    }
+  };
 }
 
 // NEW: Checkout Receipt

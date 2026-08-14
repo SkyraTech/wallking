@@ -30,6 +30,8 @@ import {
   buildQuantityPromptReply,
   buildOrderConfirmationReply,
   buildInsufficientStockReply,
+  buildViewCartReply,
+  buildCheckoutConfirmationReply,
   buildQuickOrderSummaryReply,
   buildUnknownFormatReply,
   buildCheckoutReceiptReply,
@@ -211,7 +213,32 @@ async function processMessage(
          return;
       }
 
-      if (id === "checkout") {
+      if (id === "view_cart") {
+        // Fetch cart items
+        const { data: cartItems } = await db
+          .from("whatsapp_orders")
+          .select("*")
+          .eq("sender_phone", senderPhone)
+          .eq("status", "in_cart");
+
+        if (cartItems && cartItems.length > 0) {
+          const reply = buildViewCartReply(cartItems);
+          await sendWhatsAppMessage(senderPhone, reply);
+          await db.from("whatsapp_inbound_events").update({ processing_status: "view_cart" }).eq("id", eventRowId);
+        } else {
+          await sendWhatsAppMessage(senderPhone, "🛒 Your cart is currently empty.");
+        }
+        return;
+      }
+
+      if (id === "checkout_confirm") {
+        const reply = buildCheckoutConfirmationReply();
+        await sendWhatsAppMessage(senderPhone, reply);
+        await db.from("whatsapp_inbound_events").update({ processing_status: "checkout_confirm" }).eq("id", eventRowId);
+        return;
+      }
+
+      if (id === "submit_order") {
         // Fetch cart items
         const { data: cartItems, error } = await db
           .from("whatsapp_orders")
