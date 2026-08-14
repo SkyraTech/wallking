@@ -709,12 +709,14 @@ export async function createOrder(params: {
   designNumber: string;
   brand: string;
   quantityRequested: number;
+  status?: string;
 }): Promise<void> {
   const { error } = await db.from("whatsapp_orders").insert({
     sender_phone: params.senderPhone,
     design_number: params.designNumber,
     brand: params.brand,
     quantity_requested: params.quantityRequested,
+    status: params.status || 'in_cart',
   });
 
   if (error) {

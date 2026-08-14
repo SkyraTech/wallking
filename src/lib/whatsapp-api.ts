@@ -72,21 +72,34 @@ export function buildQuantityPromptReply(designNo: string): string {
   return `How many rolls of *${designNo}* would you like to order?\n\n(Please type a number, e.g., 150)`;
 }
 
-// NEW: Order Confirmation
+// NEW: Order Confirmation (Added to Cart)
 export function buildOrderConfirmationReply(designNo: string, quantity: number): any {
   return {
     type: "interactive",
     interactive: {
       type: "button",
-      body: { text: `✅ *Order Request Received!*\n\nWe have logged your request for *${quantity} rolls* of *${designNo}*.\n\nA team member will contact you shortly to confirm the order.` },
+      body: { text: `🛒 *Added to Cart!*\n\nWe have added *${quantity} rolls* of *${designNo}* to your order cart.\n\nYou can add more designs or checkout now.` },
       action: {
         buttons: [
-          { type: "reply", reply: { id: "check_another", title: "🔎 Check Another" } },
-          { type: "reply", reply: { id: "menu", title: "🏠 Main Menu" } }
+          { type: "reply", reply: { id: "add_another", title: "🔎 Add Another" } },
+          { type: "reply", reply: { id: "checkout", title: "✅ Checkout Cart" } }
         ]
       }
     }
   };
+}
+
+// NEW: Checkout Receipt
+export function buildCheckoutReceiptReply(cartItems: any[]): string {
+  const lines = [
+    `✅ *Order Successfully Submitted!*`,
+    ``,
+    `Here is a summary of your order:`,
+    ...cartItems.map(item => `• ${item.quantity_requested} rolls of *${item.design_number}*`),
+    ``,
+    `A Wall King team member will contact you shortly to confirm availability and delivery details.`
+  ];
+  return lines.join("\n");
 }
 
 // NEW: Insufficient Stock

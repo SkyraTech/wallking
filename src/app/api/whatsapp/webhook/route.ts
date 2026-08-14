@@ -31,6 +31,7 @@ import {
   buildInsufficientStockReply,
   buildBrandsListReply,
   buildDesignsListReply,
+  buildCheckoutReceiptReply,
   maskPhone,
   SendMessageError,
 } from "@/lib/whatsapp-api";
@@ -157,7 +158,7 @@ async function processMessage(
       
       if (!id) return;
 
-      if (id === "menu" || id === "check_another") {
+      if (id === "menu" || id === "check_another" || id === "add_another") {
         const { brands, hasNextPage } = await fetchBrands(1);
         const reply = buildBrandsListReply(brands, 1, hasNextPage);
         const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
@@ -237,6 +238,32 @@ async function processMessage(
          const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
          await db.from("whatsapp_inbound_events").update({ processing_status: "backorder_agent", reply_message_id: messageId }).eq("id", eventRowId);
          return;
+      }
+
+      if (id === "checkout") {
+        // Fetch cart items
+        const { data: cartItems, error } = await db
+          .from("whatsapp_orders")
+          .select("*")
+          .eq("sender_phone", senderPhone)
+          .eq("status", "in_cart");
+
+        if (!error && cartItems && cartItems.length > 0) {
+          // Update status to pending (submitted)
+          await db
+            .from("whatsapp_orders")
+            .update({ status: "pending" })
+            .eq("sender_phone", senderPhone)
+            .eq("status", "in_cart");
+
+          const reply = buildCheckoutReceiptReply(cartItems);
+          const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
+          await db.from("whatsapp_inbound_events").update({ processing_status: "checkout_complete", reply_message_id: messageId }).eq("id", eventRowId);
+        } else {
+           const { messageId } = await sendWhatsAppMessage(senderPhone, "Your cart is empty.");
+           await db.from("whatsapp_inbound_events").update({ processing_status: "checkout_empty", reply_message_id: messageId }).eq("id", eventRowId);
+        }
+        return;
       }
 
       if (id.startsWith("design_")) {
