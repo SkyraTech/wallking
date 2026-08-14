@@ -102,6 +102,40 @@ export function buildCheckoutReceiptReply(cartItems: any[]): string {
   return lines.join("\n");
 }
 
+// NEW: Admin Approval Request
+export function buildAdminApprovalRequest(dealerPhone: string, cartItems: any[]): any {
+  const lines = [
+    `🚨 *NEW ORDER ALERT*`,
+    ``,
+    `*Dealer:* +${dealerPhone}`,
+    `*Items:*`,
+    ...cartItems.map(item => `• ${item.quantity_requested} rolls of *${item.design_number}*`),
+    ``,
+    `Do you accept this order?`
+  ];
+  return {
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: lines.join("\n") },
+      action: {
+        buttons: [
+          { type: "reply", reply: { id: `admin_accept_${dealerPhone}`, title: "✅ Accept" } },
+          { type: "reply", reply: { id: `admin_reject_${dealerPhone}`, title: "❌ Reject" } }
+        ]
+      }
+    }
+  };
+}
+
+export function buildDealerApprovalReply(): string {
+  return "✅ Excellent news! Wall King has accepted your order. A team member will contact you shortly to coordinate dispatch.";
+}
+
+export function buildDealerRejectionReply(): string {
+  return "❌ Sorry, your recent order could not be fulfilled at this time. Please contact support for alternatives.";
+}
+
 // NEW: Insufficient Stock
 export function buildInsufficientStockReply(item: StockLookupResult, requestedQty: number): any {
   return {

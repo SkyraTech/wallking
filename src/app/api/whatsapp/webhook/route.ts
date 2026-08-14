@@ -32,6 +32,9 @@ import {
   buildBrandsListReply,
   buildDesignsListReply,
   buildCheckoutReceiptReply,
+  buildAdminApprovalRequest,
+  buildDealerApprovalReply,
+  buildDealerRejectionReply,
   maskPhone,
   SendMessageError,
 } from "@/lib/whatsapp-api";
@@ -249,20 +252,46 @@ async function processMessage(
           .eq("status", "in_cart");
 
         if (!error && cartItems && cartItems.length > 0) {
-          // Update status to pending (submitted)
+          // Update status to pending_approval (waiting for owner)
           await db
             .from("whatsapp_orders")
-            .update({ status: "pending" })
+            .update({ status: "pending_approval" })
             .eq("sender_phone", senderPhone)
             .eq("status", "in_cart");
 
           const reply = buildCheckoutReceiptReply(cartItems);
           const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
+          
+          // NEW: Send Admin Approval Request
+          const ownerPhone = "918179893241"; // Hardcoded for now per user request
+          const adminReply = buildAdminApprovalRequest(senderPhone, cartItems);
+          await sendWhatsAppMessage(ownerPhone, adminReply).catch(console.error);
+
           await db.from("whatsapp_inbound_events").update({ processing_status: "checkout_complete", reply_message_id: messageId }).eq("id", eventRowId);
         } else {
            const { messageId } = await sendWhatsAppMessage(senderPhone, "Your cart is empty.");
            await db.from("whatsapp_inbound_events").update({ processing_status: "checkout_empty", reply_message_id: messageId }).eq("id", eventRowId);
         }
+        return;
+      }
+
+      if (id.startsWith("admin_accept_")) {
+        const dealerPhone = id.replace("admin_accept_", "");
+        await db.from("whatsapp_orders").update({ status: "approved" }).eq("sender_phone", dealerPhone).eq("status", "pending_approval");
+        
+        await sendWhatsAppMessage(dealerPhone, buildDealerApprovalReply()).catch(console.error);
+        const { messageId } = await sendWhatsAppMessage(senderPhone, "✅ You accepted the order. The dealer has been notified.");
+        await db.from("whatsapp_inbound_events").update({ processing_status: "admin_accepted", reply_message_id: messageId }).eq("id", eventRowId);
+        return;
+      }
+
+      if (id.startsWith("admin_reject_")) {
+        const dealerPhone = id.replace("admin_reject_", "");
+        await db.from("whatsapp_orders").update({ status: "rejected" }).eq("sender_phone", dealerPhone).eq("status", "pending_approval");
+        
+        await sendWhatsAppMessage(dealerPhone, buildDealerRejectionReply()).catch(console.error);
+        const { messageId } = await sendWhatsAppMessage(senderPhone, "❌ You rejected the order. The dealer has been notified.");
+        await db.from("whatsapp_inbound_events").update({ processing_status: "admin_rejected", reply_message_id: messageId }).eq("id", eventRowId);
         return;
       }
 
