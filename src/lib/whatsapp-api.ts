@@ -195,6 +195,53 @@ export function buildAgentReply(): string {
   ].join("\n");
 }
 
+export function buildHelpReply(): string {
+  return [
+    `🏷️ *Wall King Stock Bot — Help*`,
+    ``,
+    `Send a design number to check availability.`,
+    ``,
+    `Commands:`,
+    `  *HELP*  — Show this menu`,
+    `  *AGENT* — Request human assistance`,
+    `  *ORDER* — Place an order enquiry`,
+  ].join("\n");
+}
+
+export function buildOrderReply(): string {
+  return [
+    `🛒 To place an order, please share:`,
+    ``,
+    `1. Design number(s)`,
+    `2. Required quantity (rolls)`,
+    `3. Delivery address / city`,
+    ``,
+    `A Wall King team member will confirm availability and pricing.`,
+  ].join("\n");
+}
+
+export type SpecialCommand = "HELP" | "AGENT" | "HUMAN" | "ORDER";
+
+export function detectSpecialCommand(text: string): SpecialCommand | null {
+  const upper = text.trim().toUpperCase();
+  if (upper === "HELP") return "HELP";
+  if (upper === "AGENT" || upper === "HUMAN") return "AGENT";
+  if (upper === "ORDER") return "ORDER";
+  return null;
+}
+
+export function buildSpecialCommandReply(cmd: SpecialCommand): string {
+  switch (cmd) {
+    case "HELP":
+      return buildHelpReply();
+    case "AGENT":
+    case "HUMAN":
+      return buildAgentReply();
+    case "ORDER":
+      return buildOrderReply();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Send message via Meta Graph API
 // ---------------------------------------------------------------------------
