@@ -106,15 +106,15 @@ async function processMessage(
       .select("processing_status, normalized_design_number")
       .eq("sender_reference", maskedPhone)
       .order("created_at", { ascending: false })
-      .limit(2);
+      .limit(5);
       
-    const previousEvent = previousEvents && previousEvents.length > 1 ? previousEvents[1] : null;
+    const previousEvent = previousEvents?.find((e, i) => i > 0 && e.processing_status !== "received") || null;
 
     // --- STATE MACHINE: Quantity Validation ---
     if (!interactivePayload && previousEvent?.processing_status === "waiting_for_quantity" && previousEvent.normalized_design_number) {
-      const qtyMatch = messageText.match(/^\s*(\d+)\s*(rolls?)?\s*$/i);
+      const qtyMatch = messageText.match(/\d+/);
       if (qtyMatch) {
-        const qty = parseInt(qtyMatch[1], 10);
+        const qty = parseInt(qtyMatch[0], 10);
         if (qty > 0) {
           const designNo = previousEvent.normalized_design_number;
           const stockResult = await lookupStock(designNo);
