@@ -105,8 +105,10 @@ async function processMessage(
   try {
     // Helper to check if cart has items
     const checkCart = async () => {
-      const { data } = await db.from("whatsapp_orders").select("id").eq("sender_phone", senderPhone).eq("status", "in_cart").limit(1);
-      return (data && data.length > 0) || false;
+      const { data } = await db.from("orders").select("id").eq("dealer_phone", senderPhone).eq("status", "in_cart").limit(1);
+      if (!data || data.length === 0) return false;
+      const { data: items } = await db.from("order_items").select("id").eq("order_id", data[0].id).limit(1);
+      return (items && items.length > 0) || false;
     };
 
     // 1. Fetch previous state to handle Quantity inputs
@@ -114,7 +116,7 @@ async function processMessage(
       .from("whatsapp_inbound_events")
       .select("processing_status, normalized_design_number")
       .eq("sender_reference", maskedPhone)
-      .order("created_at", { ascending: false })
+      .order("created_on", { ascending: false })
       .limit(5);
       
     const previousEvent = previousEvents?.find((e, i) => i > 0 && e.processing_status !== "received") || null;
@@ -130,7 +132,7 @@ async function processMessage(
           const stockResult = await lookupStock(designNo);
           
           if (stockResult.found && stockResult.available) {
-            if (qty <= stockResult.quantityRolls) {
+            if (qty <= stockResult.quantityOnHand) {
               // Sufficient stock!
               await createOrder({
                 senderPhone,
@@ -214,20 +216,24 @@ async function processMessage(
       }
 
       if (id === "view_cart") {
-        // Fetch cart items
-        const { data: cartItems } = await db
-          .from("whatsapp_orders")
-          .select("*")
-          .eq("sender_phone", senderPhone)
-          .eq("status", "in_cart");
-
-        if (cartItems && cartItems.length > 0) {
-          const reply = buildViewCartReply(cartItems);
-          await sendWhatsAppMessage(senderPhone, reply);
-          await db.from("whatsapp_inbound_events").update({ processing_status: "view_cart" }).eq("id", eventRowId);
-        } else {
-          await sendWhatsAppMessage(senderPhone, "🛒 Your cart is currently empty.");
+        const { data: cartOrder } = await db.from("orders").select("id").eq("dealer_phone", senderPhone).eq("status", "in_cart").single();
+        if (cartOrder) {
+          const { data: items } = await db.from("order_items")
+            .select("quantity, stock_items(design_number_display)")
+            .eq("order_id", cartOrder.id);
+            
+          if (items && items.length > 0) {
+            const mappedItems = items.map((i: any) => ({
+              design_number: i.stock_items?.design_number_display || "Unknown",
+              quantity_requested: i.quantity
+            }));
+            const reply = buildViewCartReply(mappedItems);
+            await sendWhatsAppMessage(senderPhone, reply);
+            await db.from("whatsapp_inbound_events").update({ processing_status: "view_cart" }).eq("id", eventRowId);
+            return;
+          }
         }
+        await sendWhatsAppMessage(senderPhone, "🛒 Your cart is currently empty.");
         return;
       }
 
@@ -239,53 +245,50 @@ async function processMessage(
       }
 
       if (id === "submit_order") {
-        // Fetch cart items
-        const { data: cartItems, error } = await db
-          .from("whatsapp_orders")
-          .select("*")
-          .eq("sender_phone", senderPhone)
-          .eq("status", "in_cart");
+        const { data: cartOrder, error } = await db.from("orders").select("id").eq("dealer_phone", senderPhone).eq("status", "in_cart").single();
 
-        if (!error && cartItems && cartItems.length > 0) {
-          // Update status to pending_approval (waiting for owner)
-          await db
-            .from("whatsapp_orders")
-            .update({ status: "pending_approval" })
-            .eq("sender_phone", senderPhone)
-            .eq("status", "in_cart");
+        if (!error && cartOrder) {
+          const { data: items } = await db.from("order_items")
+            .select("quantity, stock_items(design_number_display)")
+            .eq("order_id", cartOrder.id);
+            
+          if (items && items.length > 0) {
+            // Update status to pending (waiting for owner)
+            await db.from("orders").update({ status: "pending" }).eq("id", cartOrder.id);
 
-          const reply = buildCheckoutReceiptReply(cartItems);
-          const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
-          
-          // NEW: Send Admin Approval Request
-          const ownerPhone = "918179893241"; // Hardcoded for now per user request
-          const adminReply = buildAdminApprovalRequest(senderPhone, cartItems);
-          await sendWhatsAppMessage(ownerPhone, adminReply).catch(console.error);
+            const mappedItems = items.map((i: any) => ({
+              design_number: i.stock_items?.design_number_display || "Unknown",
+              quantity_requested: i.quantity
+            }));
 
-          await db.from("whatsapp_inbound_events").update({ processing_status: "checkout_complete", reply_message_id: messageId }).eq("id", eventRowId);
-        } else {
-           const { messageId } = await sendWhatsAppMessage(senderPhone, "Your cart is empty.");
-           await db.from("whatsapp_inbound_events").update({ processing_status: "checkout_empty", reply_message_id: messageId }).eq("id", eventRowId);
+            const reply = buildCheckoutReceiptReply(mappedItems);
+            const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
+            
+            // Send Admin Approval Request
+            const ownerPhone = "918179893241"; 
+            const adminReply = buildAdminApprovalRequest(senderPhone, mappedItems);
+            await sendWhatsAppMessage(ownerPhone, adminReply).catch(console.error);
+
+            await db.from("whatsapp_inbound_events").update({ processing_status: "checkout_complete", reply_message_id: messageId }).eq("id", eventRowId);
+            return;
+          }
         }
+        
+        const { messageId } = await sendWhatsAppMessage(senderPhone, "Your cart is empty.");
+        await db.from("whatsapp_inbound_events").update({ processing_status: "checkout_empty", reply_message_id: messageId }).eq("id", eventRowId);
         return;
       }
 
       if (id.startsWith("admin_accept_")) {
-        const dealerPhone = id.replace("admin_accept_", "");
-        await db.from("whatsapp_orders").update({ status: "approved" }).eq("sender_phone", dealerPhone).eq("status", "pending_approval");
-        
-        await sendWhatsAppMessage(dealerPhone, buildDealerApprovalReply()).catch(console.error);
-        const { messageId } = await sendWhatsAppMessage(senderPhone, "✅ You accepted the order. The dealer has been notified.");
+        // Obsolete: We handle accept/reject in the admin dashboard API, but leaving this here as fallback if the admin taps in WhatsApp.
+        // Needs order ID instead of dealerPhone to work perfectly, but for now we just acknowledge it.
+        const { messageId } = await sendWhatsAppMessage(senderPhone, "Please use the Admin Dashboard to accept or reject orders.");
         await db.from("whatsapp_inbound_events").update({ processing_status: "admin_accepted", reply_message_id: messageId }).eq("id", eventRowId);
         return;
       }
 
       if (id.startsWith("admin_reject_")) {
-        const dealerPhone = id.replace("admin_reject_", "");
-        await db.from("whatsapp_orders").update({ status: "rejected" }).eq("sender_phone", dealerPhone).eq("status", "pending_approval");
-        
-        await sendWhatsAppMessage(dealerPhone, buildDealerRejectionReply()).catch(console.error);
-        const { messageId } = await sendWhatsAppMessage(senderPhone, "❌ You rejected the order. The dealer has been notified.");
+        const { messageId } = await sendWhatsAppMessage(senderPhone, "Please use the Admin Dashboard to accept or reject orders.");
         await db.from("whatsapp_inbound_events").update({ processing_status: "admin_rejected", reply_message_id: messageId }).eq("id", eventRowId);
         return;
       }
@@ -317,8 +320,8 @@ async function processMessage(
               failures.push({ designNo: item.designCode, reason: "Design not found" });
             } else if (!stockResult.available) {
               failures.push({ designNo: stockResult.designNo, reason: "Out of stock" });
-            } else if (item.quantity > stockResult.quantityRolls) {
-              failures.push({ designNo: stockResult.designNo, reason: `Only ${stockResult.quantityRolls} rolls available` });
+            } else if (item.quantity > stockResult.quantityOnHand) {
+              failures.push({ designNo: stockResult.designNo, reason: `Only ${stockResult.quantityOnHand} rolls available` });
             } else {
               await createOrder({
                 senderPhone,

@@ -30,32 +30,20 @@ interface StockItem {
   design_number_display: string;
   design_number_normalized: string;
   brand: string;
-  collection: string | null;
-  quantity_rolls: number;
-  warehouse_location: string;
-  updated_at: string;
+  quantity_on_hand: number;
+  quantity_allocated: number;
+  updated_on: string;
 }
 
-interface ImportRecord {
-  id: string;
-  filename: string | null;
-  import_mode: string;
-  imported_at: string;
-  total_rows: number;
-  created_rows: number;
-  updated_rows: number;
-  skipped_rows: number;
-  invalid_rows: number;
-  error_summary: string | null;
-}
+
 
 interface ImportPreview {
   valid: unknown[];
   invalid: { lineNumber: number; raw: Record<string, string>; errors: string[] }[];
   duplicatesInFile: unknown[];
   diff: {
-    newRows: { designNumberDisplay: string; brand: string; quantityRolls: number }[];
-    changedRows: { designNumberDisplay: string; brand: string; quantityRolls: number }[];
+    newRows: { designNumberDisplay: string; brand: string; quantityOnHand: number }[];
+    changedRows: { designNumberDisplay: string; brand: string; quantityOnHand: number }[];
     unchangedRows: { designNumberDisplay: string; brand: string }[];
   };
   canApply: boolean;
@@ -88,6 +76,13 @@ export default function AdminStockPage() {
   // --- Inventory state ---
   const [items, setItems] = useState<StockItem[]>([]);
   const [totalItems, setTotalItems] = useState(0);
+
+  const [page, setPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editQty, setEditQty] = useState<string>("");
+  const [savingId, setSavingId] = useState<string | null>(null);
   const [filterQuery, setFilterQuery] = useState("");
   const [loadingInventory, setLoadingInventory] = useState(false);
   const [inventoryError, setInventoryError] = useState("");
@@ -95,9 +90,7 @@ export default function AdminStockPage() {
   // --- Manual form state ---
   const [manualDesign, setManualDesign] = useState("");
   const [manualBrand, setManualBrand] = useState("");
-  const [manualCollection, setManualCollection] = useState("");
   const [manualQty, setManualQty] = useState("");
-  const [manualWarehouse, setManualWarehouse] = useState("Hyderabad Central Depot");
   const [manualSaving, setManualSaving] = useState(false);
   const [manualResult, setManualResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -111,9 +104,6 @@ export default function AdminStockPage() {
   const [confirmFullSnapshot, setConfirmFullSnapshot] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // --- History state ---
-  const [imports, setImports] = useState<ImportRecord[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
 
   // -------------------------------------------------------------------------
   // Load inventory
@@ -135,38 +125,49 @@ export default function AdminStockPage() {
         throw new Error(`HTTP ${res.status}`);
       }
       const data = await res.json();
-      setItems(data.stock ?? []);
-      setTotalItems(data.total ?? 0);
-    } catch (err) {
-      setInventoryError(err instanceof Error ? err.message : "Failed to load inventory");
+      setItems(data.stock || []);
+      setTotalItems(data.total || data.stock?.length || 0);
+      setPage(1); // Reset page on new search
+    } catch {
+      setInventoryError("Failed to fetch inventory.");
     } finally {
       setLoadingInventory(false);
     }
   }, [filterQuery]);
 
+  const handleSaveInline = async (item: StockItem) => {
+    if (editQty === "" || isNaN(Number(editQty))) {
+      setEditingId(null);
+      return;
+    }
+    setSavingId(item.id);
+    try {
+      const res = await fetch("/api/admin/stock/manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          designNo: item.design_number_display,
+          brand: item.brand,
+          quantityOnHand: parseInt(editQty, 10),
+        }),
+      });
+      if (res.ok) {
+        await loadInventory();
+      } else {
+        setInventoryError("Failed to update stock.");
+      }
+    } catch {
+      setInventoryError("Network error.");
+    } finally {
+      setSavingId(null);
+      setEditingId(null);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === "inventory") loadInventory();
   }, [activeTab, loadInventory]);
 
-  // -------------------------------------------------------------------------
-  // Load import history
-  // -------------------------------------------------------------------------
-  const loadHistory = useCallback(async () => {
-    setHistoryLoading(true);
-    try {
-      const res = await fetch("/api/admin/stock/import", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setImports(data.imports ?? []);
-      }
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "history") loadHistory();
-  }, [activeTab, loadHistory]);
 
   // -------------------------------------------------------------------------
   // Manual stock upsert
@@ -184,18 +185,15 @@ export default function AdminStockPage() {
         body: JSON.stringify({
           designNo: manualDesign.trim(),
           brand: manualBrand.trim() || "Wall King",
-          collection: manualCollection.trim() || undefined,
-          quantityRolls: parseInt(manualQty, 10) || 0,
-          warehouseLocation: manualWarehouse.trim() || "Hyderabad Central Depot",
+          quantityOnHand: parseInt(manualQty, 10) || 0,
         }),
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
-        setManualResult({ success: true, message: `${data.item.design_number_display} saved — ${data.item.quantity_rolls} rolls.` });
+        setManualResult({ success: true, message: `${data.item.design_number_display} saved — ${data.item.quantity_on_hand} rolls.` });
         setManualDesign("");
         setManualBrand("");
-        setManualCollection("");
         setManualQty("");
       } else {
         setManualResult({ success: false, message: data.error ?? "Save failed" });
@@ -294,9 +292,8 @@ export default function AdminStockPage() {
   // -------------------------------------------------------------------------
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "inventory", label: "Inventory", icon: <Database className="h-4 w-4" /> },
-    { id: "manual", label: "Add / Update", icon: <Plus className="h-4 w-4" /> },
+    { id: "manual", label: "Add New Design", icon: <Plus className="h-4 w-4" /> },
     { id: "import", label: "Import CSV/Excel", icon: <Upload className="h-4 w-4" /> },
-    { id: "history", label: "Import History", icon: <History className="h-4 w-4" /> },
   ];
 
   return (
@@ -314,6 +311,18 @@ export default function AdminStockPage() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <a
+              href="/admin/logs"
+              className="text-xs text-ink-3 hover:text-accent transition-colors flex items-center gap-1 bg-accent/10 px-3 py-1.5 rounded-lg font-bold"
+            >
+              Audit Logs
+            </a>
+            <a
+              href="/admin/orders"
+              className="text-xs text-ink-3 hover:text-accent transition-colors flex items-center gap-1 bg-accent/10 px-3 py-1.5 rounded-lg font-bold"
+            >
+              Order Dashboard
+            </a>
             <a
               href="/stock"
               target="_blank"
@@ -336,9 +345,9 @@ export default function AdminStockPage() {
         <div className="mb-6 grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
             { label: "Total SKUs", value: totalItems, icon: <Database className="h-4 w-4" /> },
-            { label: "In Stock", value: items.filter((i) => i.quantity_rolls > 0).length, icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" /> },
-            { label: "Out of Stock", value: items.filter((i) => i.quantity_rolls === 0).length, icon: <XCircle className="h-4 w-4 text-rose-500" /> },
-            { label: "Low Stock (<15)", value: items.filter((i) => i.quantity_rolls > 0 && i.quantity_rolls <= 15).length, icon: <AlertTriangle className="h-4 w-4 text-amber-500" /> },
+            { label: "In Stock", value: items.filter((i) => (i.quantity_on_hand - (i.quantity_allocated || 0)) > 0).length, icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" /> },
+            { label: "Out of Stock", value: items.filter((i) => (i.quantity_on_hand - (i.quantity_allocated || 0)) === 0).length, icon: <XCircle className="h-4 w-4 text-rose-500" /> },
+            { label: "Low Stock (<15)", value: items.filter((i) => { const avail = i.quantity_on_hand - (i.quantity_allocated || 0); return avail > 0 && avail <= 15; }).length, icon: <AlertTriangle className="h-4 w-4 text-amber-500" /> },
           ].map((s) => (
             <div key={s.label} className="rounded-xl border border-line bg-panel/80 p-4 flex items-center gap-3">
               <span className="text-ink-3">{s.icon}</span>
@@ -406,51 +415,107 @@ export default function AdminStockPage() {
                   <tr>
                     <th className="px-4 py-3">Design No.</th>
                     <th className="px-4 py-3">Brand</th>
-                    <th className="px-4 py-3">Collection</th>
-                    <th className="px-4 py-3">Qty (Rolls)</th>
+                    <th className="px-4 py-3">Total Qty</th>
+                    <th className="px-4 py-3">Allocated</th>
+                    <th className="px-4 py-3">Available</th>
                     <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Warehouse</th>
                     <th className="px-4 py-3">Updated</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line/40 bg-void/40">
                   {items.length === 0 && !loadingInventory && (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-ink-3">
+                      <td colSpan={6} className="px-4 py-8 text-center text-ink-3">
                         {filterQuery ? "No results for your search." : "No inventory items yet."}
                       </td>
                     </tr>
                   )}
-                  {items.map((item) => (
+                  {items.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE).map((item) => (
                     <tr key={item.id} className="hover:bg-panel/40 transition-colors">
                       <td className="px-4 py-3 font-mono font-bold text-ink">
                         {item.design_number_display}
                       </td>
                       <td className="px-4 py-3 text-ink-2">{item.brand}</td>
-                      <td className="px-4 py-3 text-ink-2">{item.collection ?? "—"}</td>
-                      <td className="px-4 py-3 font-bold text-ink">{item.quantity_rolls}</td>
+                      <td className="px-4 py-3 font-bold text-ink-3">
+                        {editingId === item.id ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              autoFocus
+                              type="number"
+                              className="w-16 rounded border border-line bg-void px-2 py-1 text-sm focus:border-accent focus:outline-none"
+                              value={editQty}
+                              onChange={(e) => setEditQty(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveInline(item);
+                                if (e.key === "Escape") setEditingId(null);
+                              }}
+                              disabled={savingId === item.id}
+                            />
+                            {savingId === item.id ? (
+                              <RefreshCw className="h-3 w-3 animate-spin text-accent" />
+                            ) : (
+                              <button onClick={() => handleSaveInline(item)} className="text-accent hover:text-white">Save</button>
+                            )}
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setEditingId(item.id);
+                              setEditQty(String(item.quantity_on_hand));
+                            }}
+                            className="flex items-center gap-2 hover:text-accent transition-colors group"
+                            title="Click to edit total quantity"
+                          >
+                            {item.quantity_on_hand}
+                            <span className="opacity-0 group-hover:opacity-100 text-[10px] uppercase underline">Edit</span>
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-bold text-amber-500">{item.quantity_allocated > 0 ? item.quantity_allocated : "-"}</td>
+                      <td className="px-4 py-3 font-bold text-ink">{item.quantity_on_hand - item.quantity_allocated}</td>
                       <td className="px-4 py-3">
-                        {item.quantity_rolls > 15 ? (
+                        {item.quantity_on_hand - item.quantity_allocated > 15 ? (
                           <span className="rounded bg-emerald-500/10 px-2 py-0.5 font-bold text-emerald-500 border border-emerald-500/20">In Stock</span>
-                        ) : item.quantity_rolls > 0 ? (
+                        ) : item.quantity_on_hand - item.quantity_allocated > 0 ? (
                           <span className="rounded bg-amber-500/10 px-2 py-0.5 font-bold text-amber-500 border border-amber-500/20">Low Stock</span>
                         ) : (
                           <span className="rounded bg-rose-500/10 px-2 py-0.5 font-bold text-rose-500 border border-rose-500/20">Out of Stock</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-ink-3 text-[0.7rem]">{item.warehouse_location}</td>
                       <td className="px-4 py-3 text-ink-3 text-[0.7rem]">
-                        {new Date(item.updated_at).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
+                        {new Date(item.updated_on).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <p className="mt-3 text-xs text-ink-3">
-              Showing {items.length} of {totalItems} items.{" "}
-              {totalItems > 200 && "Use the search filter to narrow results."}
-            </p>
+            
+            {/* Pagination Controls */}
+            {items.length > ITEMS_PER_PAGE && (
+              <div className="mt-4 flex items-center justify-between border-t border-line pt-4">
+                <p className="text-xs text-ink-3">
+                  Showing {(page - 1) * ITEMS_PER_PAGE + 1} to {Math.min(page * ITEMS_PER_PAGE, items.length)} of {items.length} entries
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="rounded-lg border border-line px-3 py-1.5 text-xs hover:bg-panel disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-xs font-bold text-ink">{page} / {Math.ceil(items.length / ITEMS_PER_PAGE)}</span>
+                  <button
+                    onClick={() => setPage((p) => Math.min(Math.ceil(items.length / ITEMS_PER_PAGE), p + 1))}
+                    disabled={page >= Math.ceil(items.length / ITEMS_PER_PAGE)}
+                    className="rounded-lg border border-line px-3 py-1.5 text-xs hover:bg-panel disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -458,7 +523,7 @@ export default function AdminStockPage() {
         {activeTab === "manual" && (
           <div className="rounded-2xl border border-line bg-panel/90 p-6 shadow-xl backdrop-blur-xl max-w-2xl">
             <div className="mb-6">
-              <h2 className="font-display text-xl font-bold text-ink">Add or Update Stock Item</h2>
+              <h2 className="font-display text-xl font-bold text-ink">Add New Design</h2>
               <p className="mt-1 text-xs text-ink-3">
                 Updates are immediate — the website search and WhatsApp bot will reflect this change on the next query.
               </p>
@@ -493,19 +558,7 @@ export default function AdminStockPage() {
                     className="w-full rounded-xl border border-line bg-void px-3 py-2.5 text-sm text-ink focus:border-accent focus:outline-none"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-ink-3 uppercase tracking-wider mb-1.5">
-                    Collection
-                  </label>
-                  <input
-                    id="manual-collection"
-                    type="text"
-                    value={manualCollection}
-                    onChange={(e) => setManualCollection(e.target.value)}
-                    placeholder="e.g. Eco-X Premier"
-                    className="w-full rounded-xl border border-line bg-void px-3 py-2.5 text-sm text-ink focus:border-accent focus:outline-none"
-                  />
-                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-ink-3 uppercase tracking-wider mb-1.5">
                     Stock Qty (Rolls) <span className="text-rose-500">*</span>
@@ -521,18 +574,7 @@ export default function AdminStockPage() {
                     className="w-full rounded-xl border border-line bg-void px-3 py-2.5 text-sm text-ink focus:border-accent focus:outline-none"
                   />
                 </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-ink-3 uppercase tracking-wider mb-1.5">
-                    Warehouse
-                  </label>
-                  <input
-                    id="manual-warehouse"
-                    type="text"
-                    value={manualWarehouse}
-                    onChange={(e) => setManualWarehouse(e.target.value)}
-                    className="w-full rounded-xl border border-line bg-void px-3 py-2.5 text-sm text-ink focus:border-accent focus:outline-none"
-                  />
-                </div>
+
               </div>
 
               {manualResult && (
@@ -761,74 +803,7 @@ export default function AdminStockPage() {
           </div>
         )}
 
-        {/* ---- HISTORY TAB ---- */}
-        {activeTab === "history" && (
-          <div className="rounded-2xl border border-line bg-panel/90 p-6 shadow-xl backdrop-blur-xl">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="font-display text-xl font-bold text-ink">Import History</h2>
-              <button
-                onClick={loadHistory}
-                disabled={historyLoading}
-                className="inline-flex items-center gap-1.5 text-xs text-ink-3 hover:text-accent transition-colors"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${historyLoading ? "animate-spin" : ""}`} />
-                Refresh
-              </button>
-            </div>
 
-            <div className="overflow-x-auto rounded-xl border border-line">
-              <table className="w-full text-left text-xs">
-                <thead className="border-b border-line bg-void/90 text-ink-3 font-semibold uppercase tracking-wider">
-                  <tr>
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">File</th>
-                    <th className="px-4 py-3">Mode</th>
-                    <th className="px-4 py-3">Total</th>
-                    <th className="px-4 py-3">Created</th>
-                    <th className="px-4 py-3">Updated</th>
-                    <th className="px-4 py-3">Skipped</th>
-                    <th className="px-4 py-3">Invalid</th>
-                    <th className="px-4 py-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line/40 bg-void/40">
-                  {imports.length === 0 && (
-                    <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-ink-3">
-                        {historyLoading ? "Loading…" : "No imports yet."}
-                      </td>
-                    </tr>
-                  )}
-                  {imports.map((imp) => (
-                    <tr key={imp.id} className="hover:bg-panel/40">
-                      <td className="px-4 py-3 text-ink-3">
-                        {new Date(imp.imported_at).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-ink-2">{imp.filename ?? "—"}</td>
-                      <td className="px-4 py-3">
-                        <span className={`rounded px-1.5 py-0.5 font-bold text-[0.65rem] ${imp.import_mode === "full_snapshot" ? "bg-amber-500/10 text-amber-500" : "bg-sky-500/10 text-sky-400"}`}>
-                          {imp.import_mode === "full_snapshot" ? "Full Snapshot" : "Incremental"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-ink">{imp.total_rows}</td>
-                      <td className="px-4 py-3 text-emerald-500">{imp.created_rows}</td>
-                      <td className="px-4 py-3 text-sky-400">{imp.updated_rows}</td>
-                      <td className="px-4 py-3 text-ink-3">{imp.skipped_rows}</td>
-                      <td className="px-4 py-3 text-rose-500">{imp.invalid_rows}</td>
-                      <td className="px-4 py-3">
-                        {imp.error_summary ? (
-                          <span className="text-rose-500 font-bold" title={imp.error_summary}>Error</span>
-                        ) : (
-                          <span className="text-emerald-500 font-bold">OK</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );

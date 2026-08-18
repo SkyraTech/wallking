@@ -108,7 +108,7 @@ describe("parseImportRow", () => {
     expect("errors" in result).toBe(false);
     if (!("errors" in result)) {
       expect(result.designNumberNormalized).toBe("7517-04");
-      expect(result.quantityRolls).toBe(99);
+      expect(result.quantityOnHand).toBe(99);
       expect(result.brand).toBe("Erismann");
     }
   });
@@ -117,7 +117,7 @@ describe("parseImportRow", () => {
     const result = parseImportRow({ lineNumber: 2, raw: { ...validRaw, "Stock Qty": "99 Rolls" } });
     expect("errors" in result).toBe(false);
     if (!("errors" in result)) {
-      expect(result.quantityRolls).toBe(99);
+      expect(result.quantityOnHand).toBe(99);
     }
   });
 
@@ -162,10 +162,8 @@ const mockStockResult: StockLookupResult = {
   found: true,
   designNo: "7517-04",
   brand: "Erismann",
-  collection: "Eco-X Premier",
-  quantityRolls: 99,
+  quantityOnHand: 99,
   available: true,
-  warehouseLocation: "Hyderabad Central Depot",
   updatedAt: "2026-08-12T10:00:00Z",
 };
 

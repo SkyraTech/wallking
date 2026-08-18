@@ -12,7 +12,7 @@
  *   - Simple in-memory rate limiting per IP (MVP; upgrade to Redis/Upstash for production)
  *
  * Response shape:
- *   { found: true,  designNo, brand, collection, quantityRolls, available, warehouseLocation, updatedAt }
+ *   { found: true,  designNo, brand, collection, quantityOnHand, available, warehouseLocation, updatedAt }
  *   { found: false, designNo }
  *   { found: false, designNo, error: "db_error" }  ← DB failure, never "Out of Stock"
  */

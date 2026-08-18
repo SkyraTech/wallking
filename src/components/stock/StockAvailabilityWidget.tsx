@@ -1,17 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Search, CheckCircle2, XCircle, AlertTriangle, ArrowRight, Send, Database, Loader2 } from "lucide-react";
+import { Search, CheckCircle2, XCircle, AlertTriangle, ArrowRight, Send, Database, Loader2, Lock } from "lucide-react";
+import Link from "next/link";
 import { whatsappLink } from "@/lib/site";
 
 interface StockResult {
   found: boolean;
   designNo?: string;
   brand?: string;
-  collection?: string | null;
-  quantityRolls?: number;
+  quantityOnHand?: number;
   available?: boolean;
-  warehouseLocation?: string;
   updatedAt?: string;
   error?: string;
 }
@@ -89,9 +88,19 @@ export function StockAvailabilityWidget({
               Enter any design number to check live Hyderabad warehouse stock.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-ink-3">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Live Database</span>
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-2 text-xs text-ink-3">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Live Database</span>
+            </div>
+            <Link 
+              href="/admin/stock" 
+              className="flex items-center gap-1 text-[10px] text-ink-3/50 transition-colors hover:text-accent"
+              title="Admin Portal"
+            >
+              <Lock className="h-2.5 w-2.5" />
+              Admin
+            </Link>
           </div>
         </div>
       )}
@@ -174,11 +183,11 @@ export function StockAvailabilityWidget({
             <div className="flex flex-col gap-4 md:flex-row md:items-center justify-between">
               <div>
                 <div className="flex items-center gap-3">
-                  {result.quantityRolls! > 15 ? (
+                  {result.quantityOnHand! > 15 ? (
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-500 border border-emerald-500/20">
                       <CheckCircle2 className="h-4 w-4" /> Available
                     </span>
-                  ) : result.quantityRolls! > 0 ? (
+                  ) : result.quantityOnHand! > 0 ? (
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-bold text-amber-500 border border-amber-500/20">
                       <AlertTriangle className="h-4 w-4" /> Low Stock
                     </span>
@@ -192,19 +201,16 @@ export function StockAvailabilityWidget({
 
                 <div className="mt-3">
                   <h4 className="font-display text-2xl font-extrabold text-ink">
-                    {result.quantityRolls! > 0
-                      ? `Available -- ${result.quantityRolls} Rolls`
+                    {result.quantityOnHand! > 0
+                      ? `Available -- ${result.quantityOnHand} Rolls`
                       : "Out of Stock"}
                   </h4>
                   <p className="mt-1 text-sm text-ink-2">
                     Brand: <strong className="text-ink">{result.brand}</strong>
-                    {result.collection && <> * Collection: <strong className="text-ink">{result.collection}</strong></>}
                   </p>
-                  {result.warehouseLocation && (
-                    <p className="mt-1 text-xs text-ink-3">
-                      Warehouse: {result.warehouseLocation} * Updated: {result.updatedAt ? new Date(result.updatedAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" }) : "-"}
-                    </p>
-                  )}
+                  <div className="mt-2 text-xs text-ink-3">
+                    Updated: {result.updatedAt ? new Date(result.updatedAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" }) : "-"}
+                  </div>
                   <p className="mt-2 text-xs text-ink-3 italic">
                     Stock is subject to final order confirmation.
                   </p>
@@ -212,10 +218,10 @@ export function StockAvailabilityWidget({
               </div>
 
               <div className="mt-2 md:mt-0 shrink-0">
-                {result.quantityRolls! > 0 ? (
+                {result.quantityOnHand! > 0 ? (
                   <a
                     href={whatsappLink(
-                      `Hello Wall King -- Order Request:\nDesign No: ${result.designNo}\nBrand: ${result.brand}\nAvailable Stock: ${result.quantityRolls} Rolls\nI would like to place an order.`
+                      `Hello Wall King -- Order Request:\nDesign No: ${result.designNo}\nBrand: ${result.brand}\nAvailable Stock: ${result.quantityOnHand} Rolls\nI would like to place an order.`
                     )}
                     target="_blank"
                     rel="noreferrer noopener"

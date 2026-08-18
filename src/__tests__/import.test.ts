@@ -20,10 +20,10 @@ vi.mock("../lib/db", () => ({
                 design_number_normalized: "7517-04",
                 brand: "Erismann",
                 collection: "Eco-X Premier",
-                quantity_rolls: 99,
+                quantity_on_hand: 99,
                 warehouse_location: "Hyderabad Central Depot",
-                updated_at: "2026-08-12T10:00:00Z",
-                created_at: "2026-08-01T10:00:00Z",
+                updated_on: "2026-08-12T10:00:00Z",
+                created_on: "2026-08-01T10:00:00Z",
                 source_import_id: null,
               },
             ],
@@ -56,18 +56,18 @@ describe("parseImportRow — valid cases", () => {
   it("parses numeric quantity", () => {
     const r = parseImportRow(makeRow());
     expect("errors" in r).toBe(false);
-    if (!("errors" in r)) expect(r.quantityRolls).toBe(99);
+    if (!("errors" in r)) expect(r.quantityOnHand).toBe(99);
   });
 
   it("parses '99 Rolls' quantity", () => {
     const r = parseImportRow(makeRow({ "Stock Qty": "99 Rolls" }));
-    if (!("errors" in r)) expect(r.quantityRolls).toBe(99);
+    if (!("errors" in r)) expect(r.quantityOnHand).toBe(99);
   });
 
   it("parses '0' as zero rolls (out of stock, not error)", () => {
     const r = parseImportRow(makeRow({ "Stock Qty": "0" }));
     expect("errors" in r).toBe(false);
-    if (!("errors" in r)) expect(r.quantityRolls).toBe(0);
+    if (!("errors" in r)) expect(r.quantityOnHand).toBe(0);
   });
 
   it("normalizes design number to uppercase hyphenated form", () => {
@@ -80,10 +80,6 @@ describe("parseImportRow — valid cases", () => {
     if (!("errors" in r)) expect(r.brand).toBe("Wall King Import");
   });
 
-  it("defaults warehouse when blank", () => {
-    const r = parseImportRow(makeRow({ "Warehouse": "" }));
-    if (!("errors" in r)) expect(r.warehouseLocation).toBe("Hyderabad Central Depot");
-  });
 });
 
 describe("parseImportRow — invalid cases", () => {

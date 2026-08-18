@@ -2,13 +2,14 @@
 
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Lock, LogIn, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { Lock, LogIn, Eye, EyeOff, ShieldCheck, Mail } from "lucide-react";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const from = searchParams.get("from") ?? "/admin/stock";
 
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -23,7 +24,7 @@ function LoginForm() {
       const res = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
       if (res.ok) {
@@ -45,6 +46,25 @@ function LoginForm() {
       onSubmit={handleSubmit}
       className="rounded-2xl border border-line bg-panel/90 p-6 shadow-2xl backdrop-blur-xl"
     >
+      <div className="mb-4">
+        <label className="block text-xs font-semibold text-ink-3 uppercase tracking-wider mb-2">
+          Email Address
+        </label>
+        <div className="relative">
+          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-3" />
+          <input
+            id="admin-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="username"
+            required
+            className="w-full rounded-xl border border-line bg-void pl-10 pr-3 py-3 text-sm text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+            placeholder="admin@wallking.com"
+          />
+        </div>
+      </div>
+
       <div className="mb-5">
         <label className="block text-xs font-semibold text-ink-3 uppercase tracking-wider mb-2">
           Admin Password
@@ -81,7 +101,7 @@ function LoginForm() {
       <button
         id="admin-login-submit"
         type="submit"
-        disabled={loading || !password}
+        disabled={loading || !password || !email}
         className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-accent py-3 font-display text-sm font-bold text-white shadow-lg transition-transform duration-200 hover:scale-105 hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
       >
         {loading ? (

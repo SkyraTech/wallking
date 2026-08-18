@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   let query = db
     .from("stock_items")
     .select("*", { count: "exact" })
-    .order("updated_at", { ascending: false })
+    .order("updated_on", { ascending: false })
     .range((page - 1) * limit, page * limit - 1);
 
   if (search) {

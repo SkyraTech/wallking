@@ -4,7 +4,7 @@
  * Add or update a single stock item.
  * Auth: Authorization: Bearer <ADMIN_SECRET>
  *
- * Body: { designNo, brand, collection?, quantityRolls, warehouseLocation? }
+ * Body: { designNo, brand, collection?, quantityOnHand, warehouseLocation? }
  */
 import { NextRequest, NextResponse } from "next/server";
 import { upsertStockItem } from "@/lib/stock-service";
@@ -34,16 +34,16 @@ export async function POST(req: NextRequest) {
     designNo,
     brand,
     collection,
-    quantityRolls,
+    quantityOnHand,
     warehouseLocation,
   } = body as Record<string, unknown>;
 
   if (!designNo || typeof designNo !== "string") {
     return NextResponse.json({ error: "designNo is required" }, { status: 400 });
   }
-  if (typeof quantityRolls !== "number" || quantityRolls < 0) {
+  if (typeof quantityOnHand !== "number" || quantityOnHand < 0) {
     return NextResponse.json(
-      { error: "quantityRolls must be a non-negative integer" },
+      { error: "quantityOnHand must be a non-negative integer" },
       { status: 400 }
     );
   }
@@ -52,9 +52,7 @@ export async function POST(req: NextRequest) {
     const item = await upsertStockItem({
       designNumberDisplay: String(designNo),
       brand: brand ? String(brand) : "Wall King",
-      collection: collection ? String(collection) : undefined,
-      quantityRolls: Math.floor(Number(quantityRolls)),
-      warehouseLocation: warehouseLocation ? String(warehouseLocation) : undefined,
+      quantityOnHand: Math.floor(Number(quantityOnHand)),
     });
 
     return NextResponse.json({ success: true, item });

@@ -3,9 +3,10 @@
  * Validates the admin password and sets a session cookie.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
-  let body: { password?: string };
+  let body: { email?: string; password?: string };
   try {
     body = await req.json();
   } catch {
@@ -17,16 +18,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Server misconfiguration" }, { status: 500 });
   }
 
-  if (!body.password || body.password !== adminSecret) {
-    // Constant-time comparison to prevent timing attacks
-    const crypto = await import("crypto");
-    try {
-      crypto.timingSafeEqual(
-        Buffer.from(body.password ?? "", "utf8"),
-        Buffer.from(adminSecret, "utf8")
-      );
-    } catch { /* length mismatch — expected */ }
-    return NextResponse.json({ error: "Invalid password" }, { status: 401 });
+  if (!body.email || !body.password) {
+    return NextResponse.json({ error: "Email and password required" }, { status: 400 });
+  }
+
+  // Verify against Supabase
+  const { data: isValid, error } = await db.rpc('verify_admin_login', {
+    p_email: body.email,
+    p_password: body.password
+  });
+
+  if (error) {
+    console.error("Login RPC error:", error);
+    return NextResponse.json({ error: "Authentication service error" }, { status: 500 });
+  }
+
+  if (!isValid) {
+    return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
 
   const res = NextResponse.json({ success: true });

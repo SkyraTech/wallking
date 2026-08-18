@@ -7,9 +7,8 @@ interface SimResult {
   found: boolean;
   designNo?: string;
   brand?: string;
-  quantityRolls?: number;
+  quantityOnHand?: number;
   available?: boolean;
-  warehouseLocation?: string;
   error?: string;
 }
 
@@ -23,7 +22,7 @@ export function WhatsAppAutoResponderPanel() {
   const [inputMsg, setInputMsg] = useState("7517-04");
   const [chatHistory, setChatHistory] = useState<ChatMsg[]>([
     { sender: "dealer", text: "7517-04", time: "10:14 AM" },
-    { sender: "bot", text: "📦 Wall King Stock Update\n\nDesign No: *7517-04*\nBrand: *Erismann*\nStatus: ✅ *Available -- 99 Rolls*\nWarehouse: Hyderabad Central Depot\n\nStock is subject to final order confirmation.", time: "10:14 AM" },
+    { sender: "bot", text: "📦 Wall King Stock Update\n\nDesign No: *7517-04*\nBrand: *Erismann*\nStatus: ✅ *Available -- 99 Rolls*\n\nStock is subject to final order confirmation.", time: "10:14 AM" },
   ]);
   const [loading, setLoading] = useState(false);
 
@@ -59,8 +58,7 @@ export function WhatsAppAutoResponderPanel() {
           ``,
           `Design No: *${data.designNo}*`,
           `Brand: *${data.brand}*`,
-          `Status: ✅ *Available -- ${data.quantityRolls} Rolls*`,
-          data.warehouseLocation ? `Warehouse: ${data.warehouseLocation}` : null,
+          `Status: ✅ *Available -- ${data.quantityOnHand} Rolls*`,
           ``,
           `Stock is subject to final order confirmation.`,
         ]

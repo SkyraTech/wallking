@@ -41,9 +41,7 @@ export function buildAvailableReply(item: StockLookupResult): string {
     ``,
     `Design No: *${item.designNo}*`,
     `Brand: *${item.brand}*`,
-    item.collection ? `Collection: *${item.collection}*` : null,
-    `Status: ✅ *Available — ${item.quantityRolls} Rolls*`,
-    item.warehouseLocation ? `Warehouse: ${item.warehouseLocation}` : null,
+    `Status: ✅ *Available — ${item.quantityOnHand} Rolls*`,
     ``,
     `Stock is subject to final order confirmation.`,
   ].filter((l) => l !== null).join("\n");
@@ -96,10 +94,10 @@ export function buildInsufficientStockReply(item: StockLookupResult, requestedQt
     type: "interactive",
     interactive: {
       type: "button",
-      body: { text: `⚠️ *Insufficient Stock*\n\nYou requested ${requestedQty} rolls of *${item.designNo}*, but we only have *${item.quantityRolls} rolls* available.\n\nHow would you like to proceed?` },
+      body: { text: `⚠️ *Insufficient Stock*\n\nYou requested ${requestedQty} rolls of *${item.designNo}*, but we only have *${item.quantityOnHand} rolls* available.\n\nHow would you like to proceed?` },
       action: {
         buttons: [
-          { type: "reply", reply: { id: `buy_partial_${item.designNo}_${item.quantityRolls}`, title: `🛒 Buy ${item.quantityRolls}` } },
+          { type: "reply", reply: { id: `buy_partial_${item.designNo}_${item.quantityOnHand}`, title: `🛒 Buy ${item.quantityOnHand}` } },
           { type: "reply", reply: { id: `wait_${item.designNo}_${requestedQty}`, title: "⏳ Ask Wait Time" } }
         ]
       }

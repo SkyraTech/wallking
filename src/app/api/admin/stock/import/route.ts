@@ -44,11 +44,11 @@ function checkAdminAuth(req: NextRequest): boolean {
 // CSV Template download
 // ---------------------------------------------------------------------------
 
-const TEMPLATE_HEADERS = ["Design No.", "Brand", "Collection", "Stock Qty", "Warehouse"];
+const TEMPLATE_HEADERS = ["Design No.", "Brand", "Stock Qty"];
 const TEMPLATE_SAMPLE = [
-  ["7517-04", "Erismann", "Eco-X Premier", "99", "Hyderabad Central Depot"],
-  ["ONYX-102", "Marburg", "Onyx Statement", "45", "Hyderabad Central Depot"],
-  ["BEL-804", "Grandeco", "Belvedere Gold", "120", "Hyderabad Central Depot"],
+  ["7517-04", "Erismann", "99"],
+  ["ONYX-102", "Marburg", "45"],
+  ["BEL-804", "Grandeco", "120"],
 ];
 
 function buildCsvTemplate(): string {
@@ -72,19 +72,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // List recent imports
-  const { db } = await import("@/lib/db");
-  const { data, error } = await db
-    .from("stock_imports")
-    .select("*")
-    .order("imported_at", { ascending: false })
-    .limit(50);
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ imports: data });
+  return NextResponse.json({ imports: [] });
 }
 
 // ---------------------------------------------------------------------------

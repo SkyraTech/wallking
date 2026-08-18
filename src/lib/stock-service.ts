@@ -23,12 +23,10 @@ export interface StockItem {
   design_number_display: string;
   design_number_normalized: string;
   brand: string;
-  collection: string | null;
-  quantity_rolls: number;
-  warehouse_location: string;
-  updated_at: string;
-  created_at: string;
-  source_import_id: string | null;
+  quantity_on_hand: number;
+  quantity_allocated: number;
+  updated_on: string;
+  created_on: string;
 }
 
 /** Returned by lookupStock — no DB internals exposed */
@@ -36,10 +34,8 @@ export interface StockLookupResult {
   found: true;
   designNo: string;        // display form
   brand: string;
-  collection: string | null;
-  quantityRolls: number;
+  quantityOnHand: number;
   available: boolean;
-  warehouseLocation: string;
   updatedAt: string;
 }
 
@@ -72,9 +68,7 @@ export interface ValidatedImportRow {
   designNumberDisplay: string;
   designNumberNormalized: string;
   brand: string;
-  collection: string;
-  quantityRolls: number;
-  warehouseLocation: string;
+  quantityOnHand: number;
 }
 
 export interface InvalidImportRow {
@@ -98,7 +92,6 @@ export interface ImportPreview {
 }
 
 export interface ImportResult {
-  importId: string;
   totalRows: number;
   createdRows: number;
   updatedRows: number;
@@ -243,10 +236,9 @@ export async function lookupStock(
     const result = await db
       .from("stock_items")
       .select(
-        "id, design_number_display, design_number_normalized, brand, collection, quantity_rolls, warehouse_location, updated_at"
+        "id, design_number_display, design_number_normalized, brand, quantity_on_hand, quantity_allocated, updated_on"
       )
       .eq("design_number_normalized", normalized)
-      .order("quantity_rolls", { ascending: false }) // prefer in-stock when brand ambiguous
       .limit(1)
       .maybeSingle();
 
@@ -274,11 +266,9 @@ export async function lookupStock(
     found: true,
     designNo: data.design_number_display,
     brand: data.brand,
-    collection: data.collection,
-    quantityRolls: data.quantity_rolls,
-    available: data.quantity_rolls > 0,
-    warehouseLocation: data.warehouse_location,
-    updatedAt: data.updated_at,
+    quantityOnHand: data.quantity_on_hand,
+    available: (data.quantity_on_hand - data.quantity_allocated) > 0,
+    updatedAt: data.updated_on,
   };
 }
 
@@ -286,7 +276,7 @@ export async function lookupStock(
 // Import row validation
 // ---------------------------------------------------------------------------
 
-const VALID_COLUMNS = ["Design No.", "Brand", "Collection", "Stock Qty", "Warehouse"];
+const VALID_COLUMNS = ["Design No.", "Brand", "Stock Qty"];
 
 /**
  * Parses a single raw import row.
@@ -295,9 +285,7 @@ const VALID_COLUMNS = ["Design No.", "Brand", "Collection", "Stock Qty", "Wareho
  * Accepted column names (case-insensitive):
  *   "Design No.", "Design No", "Design Number", "design_no"
  *   "Brand"
- *   "Collection"
  *   "Stock Qty", "Qty", "Quantity", "Rolls", "Stock Qty (Rolls)"
- *   "Warehouse", "Location"
  */
 function resolveColumn(raw: Record<string, string>, ...keys: string[]): string {
   for (const key of keys) {
@@ -322,7 +310,6 @@ export function parseImportRow(
     "DesignNo"
   );
   const brandRaw = resolveColumn(row.raw, "Brand", "brand");
-  const collectionRaw = resolveColumn(row.raw, "Collection", "collection");
   const qtyRaw = resolveColumn(
     row.raw,
     "Stock Qty",
@@ -332,7 +319,6 @@ export function parseImportRow(
     "Stock Qty (Rolls)",
     "stock_qty"
   );
-  const warehouseRaw = resolveColumn(row.raw, "Warehouse", "Location", "warehouse");
 
   // --- Validate design number ---
   if (!designRaw.trim()) {
@@ -345,7 +331,7 @@ export function parseImportRow(
 
   // Accept "99", "99 Rolls", "99 rolls", " 99 ", "-1"
   const qtyMatch = qtyRaw.match(/^\s*(-?\d+)\s*(rolls?)?\s*$/i);
-  let quantityRolls = 0;
+  let quantityOnHand = 0;
   if (!qtyRaw.trim()) {
     errors.push("Stock Qty is required");
   } else if (!qtyMatch) {
@@ -353,8 +339,8 @@ export function parseImportRow(
       `Stock Qty "${qtyRaw}" is not a valid number (accepted: "99" or "99 Rolls")`
     );
   } else {
-    quantityRolls = parseInt(qtyMatch[1], 10);
-    if (quantityRolls < 0) {
+    quantityOnHand = parseInt(qtyMatch[1], 10);
+    if (quantityOnHand < 0) {
       errors.push("Stock Qty must be 0 or greater");
     }
   }
@@ -368,9 +354,7 @@ export function parseImportRow(
     designNumberDisplay: designRaw.trim(),
     designNumberNormalized: designNorm,
     brand: brandRaw.trim() || "Wall King Import",
-    collection: collectionRaw.trim() || "",
-    quantityRolls,
-    warehouseLocation: warehouseRaw.trim() || "Hyderabad Central Depot",
+    quantityOnHand,
   };
 }
 
@@ -434,7 +418,7 @@ export async function buildImportPreview(
     const existing = existingMap.get(key);
     if (!existing) {
       newRows.push(row);
-    } else if (existing.quantity_rolls !== row.quantityRolls) {
+    } else if (existing.quantity_on_hand !== row.quantityOnHand) {
       changedRows.push(row);
     } else {
       unchangedRows.push(row);
@@ -454,27 +438,6 @@ export async function buildImportPreview(
 // Apply imports (with DB writes)
 // ---------------------------------------------------------------------------
 
-async function createImportRecord(
-  filename: string | null,
-  mode: "incremental" | "full_snapshot",
-  totalRows: number
-): Promise<string> {
-  const { data, error } = await db
-    .from("stock_imports")
-    .insert({
-      filename,
-      import_mode: mode,
-      uploaded_by: "admin",
-      total_rows: totalRows,
-    })
-    .select("id")
-    .single();
-
-  if (error || !data) {
-    throw new Error(`Failed to create import record: ${error?.message}`);
-  }
-  return data.id;
-}
 
 /**
  * Incremental import — only upsert supplied rows.
@@ -482,17 +445,12 @@ async function createImportRecord(
  */
 export async function applyIncrementalImport(
   preview: ImportPreview,
-  filename: string | null = null
+  filename: string | null = null,
+  actor: string = "SYSTEM"
 ): Promise<ImportResult> {
   if (!preview.canApply) {
     throw new Error("Preview has errors — cannot apply import");
   }
-
-  const importId = await createImportRecord(
-    filename,
-    "incremental",
-    preview.valid.length + preview.invalid.length
-  );
 
   const rowsToUpsert = [
     ...preview.diff.newRows,
@@ -501,52 +459,56 @@ export async function applyIncrementalImport(
 
   let createdRows = 0;
   let updatedRows = 0;
+  
+  const { data: allExisting } = await db.from("stock_items").select("design_number_normalized, quantity_on_hand");
+  const qtyMap = new Map(allExisting?.map(item => [item.design_number_normalized, item.quantity_on_hand]) || []);
+  let auditLogs: any[] = [];
 
   for (const row of rowsToUpsert) {
+    const oldQty = qtyMap.get(row.designNumberNormalized);
+    const isNew = oldQty === undefined;
+
     const { error } = await db.from("stock_items").upsert(
       {
         design_number_display: row.designNumberDisplay,
         design_number_normalized: row.designNumberNormalized,
         brand: row.brand,
-        collection: row.collection || null,
-        quantity_rolls: row.quantityRolls,
-        warehouse_location: row.warehouseLocation,
-        updated_at: new Date().toISOString(),
-        source_import_id: importId,
+        quantity_on_hand: row.quantityOnHand,
+        updated_on: new Date().toISOString(),
       },
-      { onConflict: "brand,design_number_normalized" }
+      { onConflict: "design_number_normalized" }
     );
 
     if (error) {
-      // Update import record with error and rethrow
-      await db
-        .from("stock_imports")
-        .update({ error_summary: error.message })
-        .eq("id", importId);
       throw new Error(`Import failed on row: ${error.message}`);
     }
 
-    if (preview.diff.newRows.includes(row)) {
+    if (isNew) {
       createdRows++;
     } else {
       updatedRows++;
     }
+    
+    const prev = isNew ? 0 : oldQty;
+    if (prev !== row.quantityOnHand) {
+      auditLogs.push({
+        action_type: "BULK_IMPORT",
+        design_number: row.designNumberDisplay,
+        previous_quantity: prev,
+        new_quantity: row.quantityOnHand,
+        delta: row.quantityOnHand - prev,
+        created_by: actor
+      });
+    }
+  }
+  
+  if (auditLogs.length > 0) {
+    await db.from("stock_audit_logs").insert(auditLogs);
   }
 
   const skippedRows = preview.diff.unchangedRows.length;
 
-  await db
-    .from("stock_imports")
-    .update({
-      created_rows: createdRows,
-      updated_rows: updatedRows,
-      skipped_rows: skippedRows,
-      invalid_rows: preview.invalid.length,
-    })
-    .eq("id", importId);
-
   return {
-    importId,
     totalRows: preview.valid.length + preview.invalid.length,
     createdRows,
     updatedRows,
@@ -557,7 +519,7 @@ export async function applyIncrementalImport(
 
 /**
  * Full snapshot import — replaces the entire stock_items table.
- * Any design not in the file will be set to quantity_rolls = 0.
+ * Any design not in the file will be set to quantity_on_hand = 0.
  *
  * This runs as two separate operations (set all to 0, then upsert supplied).
  * Note: True transactionality requires a Postgres function for atomic rollback;
@@ -565,34 +527,43 @@ export async function applyIncrementalImport(
  */
 export async function applyFullSnapshotImport(
   preview: ImportPreview,
-  filename: string | null = null
+  filename: string | null = null,
+  actor: string = "SYSTEM"
 ): Promise<ImportResult> {
   if (!preview.canApply) {
     throw new Error("Preview has errors — cannot apply full snapshot import");
   }
 
-  const importId = await createImportRecord(
-    filename,
-    "full_snapshot",
-    preview.valid.length + preview.invalid.length
-  );
+  const { data: allExisting } = await db.from("stock_items").select("design_number_normalized, quantity_on_hand, design_number_display");
+  const existingMap = new Map(allExisting?.map(item => [item.design_number_normalized, item]) || []);
+  let auditLogs: any[] = [];
 
   // Step 1: Set all existing items to 0 rolls
   const { error: zeroError } = await db
     .from("stock_items")
     .update({
-      quantity_rolls: 0,
-      updated_at: new Date().toISOString(),
-      source_import_id: importId,
+      quantity_on_hand: 0,
+      updated_on: new Date().toISOString(),
     })
     .neq("id", "00000000-0000-0000-0000-000000000000"); // update all rows
 
   if (zeroError) {
-    await db
-      .from("stock_imports")
-      .update({ error_summary: zeroError.message })
-      .eq("id", importId);
     throw new Error(`Full snapshot failed (zeroing step): ${zeroError.message}`);
+  }
+  
+  // Log all existing items going to 0 that are NOT in the import file
+  const validNorms = new Set(preview.valid.map(r => r.designNumberNormalized));
+  for (const [norm, item] of existingMap.entries()) {
+    if (!validNorms.has(norm) && item.quantity_on_hand > 0) {
+      auditLogs.push({
+        action_type: "BULK_IMPORT_ZEROED",
+        design_number: item.design_number_display,
+        previous_quantity: item.quantity_on_hand,
+        new_quantity: 0,
+        delta: -item.quantity_on_hand,
+        created_by: actor
+      });
+    }
   }
 
   // Step 2: Upsert all supplied rows
@@ -600,47 +571,47 @@ export async function applyFullSnapshotImport(
   let updatedRows = 0;
 
   for (const row of preview.valid) {
+    const existing = existingMap.get(row.designNumberNormalized);
+    const oldQty = existing ? existing.quantity_on_hand : 0;
+    
     const { error } = await db.from("stock_items").upsert(
       {
         design_number_display: row.designNumberDisplay,
         design_number_normalized: row.designNumberNormalized,
         brand: row.brand,
-        collection: row.collection || null,
-        quantity_rolls: row.quantityRolls,
-        warehouse_location: row.warehouseLocation,
-        updated_at: new Date().toISOString(),
-        source_import_id: importId,
+        quantity_on_hand: row.quantityOnHand,
+        updated_on: new Date().toISOString(),
       },
-      { onConflict: "brand,design_number_normalized" }
+      { onConflict: "design_number_normalized" }
     );
 
     if (error) {
-      await db
-        .from("stock_imports")
-        .update({ error_summary: error.message })
-        .eq("id", importId);
       throw new Error(`Full snapshot failed (upsert step): ${error.message}`);
     }
 
-    if (preview.diff.newRows.includes(row)) {
+    if (!existing) {
       createdRows++;
     } else {
       updatedRows++;
     }
+    
+    if (oldQty !== row.quantityOnHand) {
+      auditLogs.push({
+        action_type: "BULK_IMPORT",
+        design_number: row.designNumberDisplay,
+        previous_quantity: oldQty,
+        new_quantity: row.quantityOnHand,
+        delta: row.quantityOnHand - oldQty,
+        created_by: actor
+      });
+    }
+  }
+  
+  if (auditLogs.length > 0) {
+    await db.from("stock_audit_logs").insert(auditLogs);
   }
 
-  await db
-    .from("stock_imports")
-    .update({
-      created_rows: createdRows,
-      updated_rows: updatedRows,
-      skipped_rows: 0,
-      invalid_rows: preview.invalid.length,
-    })
-    .eq("id", importId);
-
   return {
-    importId,
     totalRows: preview.valid.length + preview.invalid.length,
     createdRows,
     updatedRows,
@@ -655,9 +626,7 @@ export async function applyFullSnapshotImport(
 export async function upsertStockItem(params: {
   designNumberDisplay: string;
   brand: string;
-  collection?: string;
-  quantityRolls: number;
-  warehouseLocation?: string;
+  quantityOnHand: number;
   actor?: string;
 }): Promise<StockItem> {
   const normalized = normalizeDesignNumber(params.designNumberDisplay);
@@ -665,9 +634,17 @@ export async function upsertStockItem(params: {
   if (!normalized || normalized.length < 2) {
     throw new Error("Invalid design number");
   }
-  if (params.quantityRolls < 0) {
+  if (params.quantityOnHand < 0) {
     throw new Error("Quantity must be 0 or greater");
   }
+  
+  const { data: existing } = await db
+    .from("stock_items")
+    .select("quantity_on_hand")
+    .eq("design_number_normalized", normalized)
+    .single();
+    
+  const oldQty = existing ? existing.quantity_on_hand : 0;
 
   const { data, error } = await db
     .from("stock_items")
@@ -676,12 +653,10 @@ export async function upsertStockItem(params: {
         design_number_display: params.designNumberDisplay.trim(),
         design_number_normalized: normalized,
         brand: params.brand?.trim() || "Wall King",
-        collection: params.collection?.trim() || null,
-        quantity_rolls: params.quantityRolls,
-        warehouse_location: params.warehouseLocation?.trim() || "Hyderabad Central Depot",
-        updated_at: new Date().toISOString(),
+        quantity_on_hand: params.quantityOnHand,
+        updated_on: new Date().toISOString(),
       },
-      { onConflict: "brand,design_number_normalized" }
+      { onConflict: "design_number_normalized" }
     )
     .select()
     .single();
@@ -689,6 +664,18 @@ export async function upsertStockItem(params: {
   if (error || !data) {
     throw new Error(`Failed to upsert stock item: ${error?.message}`);
   }
+  
+  if (oldQty !== params.quantityOnHand) {
+    await db.from("stock_audit_logs").insert({
+      action_type: existing ? "MANUAL_UPDATE" : "MANUAL_ADD",
+      design_number: params.designNumberDisplay.trim(),
+      previous_quantity: oldQty,
+      new_quantity: params.quantityOnHand,
+      delta: params.quantityOnHand - oldQty,
+      created_by: params.actor || "SYSTEM"
+    });
+  }
+  
   return data as StockItem;
 }
 
@@ -747,49 +734,75 @@ export async function createOrder(payload: {
   brand: string;
   quantityRequested: number;
 }) {
-  const { senderPhone, designNumber, brand, quantityRequested } = payload;
+  const { senderPhone, designNumber, quantityRequested } = payload;
+  const normalized = normalizeDesignNumber(designNumber);
+
+  // 1. Upsert Dealer
+  await db.from("dealers").upsert(
+    { phone_number: senderPhone, business_name: "WhatsApp User" },
+    { onConflict: "phone_number" }
+  );
+
+  // 2. Find or Create Order Header
+  let { data: order } = await db.from("orders")
+    .select("id")
+    .eq("dealer_phone", senderPhone)
+    .eq("status", "in_cart")
+    .single();
+
+  if (!order) {
+    const { data: newOrder, error: orderErr } = await db.from("orders")
+      .insert({ dealer_phone: senderPhone, status: "in_cart", order_source: "WHATSAPP" })
+      .select("id")
+      .single();
+    if (orderErr) throw orderErr;
+    order = newOrder;
+  }
+
+  // 3. Find Stock Item ID
+  const { data: stock } = await db.from("stock_items")
+    .select("id, quantity_allocated")
+    .eq("design_number_normalized", normalized)
+    .single();
+
+  if (!stock) {
+    throw new Error(`Stock item ${designNumber} not found.`);
+  }
+
+  // 4. Find Existing Order Item
+  const { data: existingItem } = await db.from("order_items")
+    .select("id, quantity")
+    .eq("order_id", order!.id)
+    .eq("stock_item_id", stock.id)
+    .single();
 
   if (quantityRequested === 0) {
-    // Delete item from cart if qty is 0
-    const { error } = await db.from("whatsapp_orders")
-      .delete()
-      .eq("sender_phone", senderPhone)
-      .eq("design_number", designNumber)
-      .eq("status", "in_cart");
-      
-    if (error) {
-      console.error("Error deleting cart item:", error);
-      throw error;
+    if (existingItem) {
+      // Remove from cart and release allocation
+      await db.from("order_items").delete().eq("id", existingItem.id);
+      const newAllocated = Math.max(0, stock.quantity_allocated - existingItem.quantity);
+      await db.from("stock_items").update({ quantity_allocated: newAllocated }).eq("id", stock.id);
     }
     return;
   }
 
-  // Check if item already in cart
-  const { data: existing } = await db.from("whatsapp_orders")
-    .select("id")
-    .eq("sender_phone", senderPhone)
-    .eq("design_number", designNumber)
-    .eq("status", "in_cart")
-    .single();
+  // Calculate allocation diff
+  const oldQty = existingItem ? existingItem.quantity : 0;
+  const diff = quantityRequested - oldQty;
+  const newAllocated = stock.quantity_allocated + diff;
 
-  if (existing) {
-    // Overwrite quantity
-    const { error } = await db.from("whatsapp_orders")
-      .update({ quantity_requested: quantityRequested })
-      .eq("id", existing.id);
-    if (error) throw error;
+  if (existingItem) {
+    await db.from("order_items").update({ quantity: quantityRequested }).eq("id", existingItem.id);
   } else {
-    // Insert new item
-    const { error } = await db.from("whatsapp_orders").insert({
-      sender_phone: senderPhone,
-      design_number: designNumber,
-      brand,
-      quantity_requested: quantityRequested,
-      status: "in_cart"
+    await db.from("order_items").insert({
+      order_id: order!.id,
+      stock_item_id: stock.id,
+      quantity: quantityRequested
     });
-    if (error) {
-      console.error("Error creating order:", error);
-      throw error;
-    }
   }
+
+  // Update allocation
+  await db.from("stock_items")
+    .update({ quantity_allocated: newAllocated })
+    .eq("id", stock.id);
 }
