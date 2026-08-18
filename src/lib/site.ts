@@ -161,7 +161,8 @@ export const applications = [
 ] as const;
 
 export function whatsappLink(message: string) {
-  return `https://wa.me/${site.whatsapp}?text=${encodeURIComponent(message)}`;
+  const phone = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || site.whatsapp;
+  return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
 
 export function mapsLink(query: string) {
