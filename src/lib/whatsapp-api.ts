@@ -220,7 +220,7 @@ export function buildCheckoutReceiptReply(cartItems: any[]): string {
 }
 
 // NEW: Admin Approval Request
-export function buildAdminApprovalRequest(dealerPhone: string, cartItems: any[]): any {
+export function buildAdminApprovalRequest(dealerPhone: string, cartItems: any[], orderId: string): any {
   const lines = [
     `🚨 *NEW ORDER ALERT*`,
     ``,
@@ -230,6 +230,8 @@ export function buildAdminApprovalRequest(dealerPhone: string, cartItems: any[])
     ``,
     `Do you accept this order?`
   ];
+  // Button IDs carry orderId so the webhook can resolve the right order
+  // Format: admin_accept_{orderId}_{dealerPhone}
   return {
     type: "interactive",
     interactive: {
@@ -237,8 +239,8 @@ export function buildAdminApprovalRequest(dealerPhone: string, cartItems: any[])
       body: { text: lines.join("\n") },
       action: {
         buttons: [
-          { type: "reply", reply: { id: `admin_accept_${dealerPhone}`, title: "✅ Accept" } },
-          { type: "reply", reply: { id: `admin_reject_${dealerPhone}`, title: "❌ Reject" } }
+          { type: "reply", reply: { id: `admin_accept_${orderId}_${dealerPhone}`, title: "✅ Accept" } },
+          { type: "reply", reply: { id: `admin_reject_${orderId}_${dealerPhone}`, title: "❌ Reject" } }
         ]
       }
     }

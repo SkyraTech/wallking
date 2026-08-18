@@ -264,9 +264,9 @@ async function processMessage(
             const reply = buildCheckoutReceiptReply(mappedItems);
             const { messageId } = await sendWhatsAppMessage(senderPhone, reply);
             
-            // Send Admin Approval Request
-            const ownerPhone = "918179893241"; 
-            const adminReply = buildAdminApprovalRequest(senderPhone, mappedItems);
+            // Send Admin Approval Request — include orderId in button IDs
+            const ownerPhone = process.env.ADMIN_WHATSAPP_NUMBER || "918179893241";
+            const adminReply = buildAdminApprovalRequest(senderPhone, mappedItems, cartOrder.id);
             await sendWhatsAppMessage(ownerPhone, adminReply).catch(console.error);
 
             await db.from("whatsapp_inbound_events").update({ processing_status: "checkout_complete", reply_message_id: messageId }).eq("id", eventRowId);
@@ -279,17 +279,42 @@ async function processMessage(
         return;
       }
 
-      if (id.startsWith("admin_accept_")) {
-        // Obsolete: We handle accept/reject in the admin dashboard API, but leaving this here as fallback if the admin taps in WhatsApp.
-        // Needs order ID instead of dealerPhone to work perfectly, but for now we just acknowledge it.
-        const { messageId } = await sendWhatsAppMessage(senderPhone, "Please use the Admin Dashboard to accept or reject orders.");
-        await db.from("whatsapp_inbound_events").update({ processing_status: "admin_accepted", reply_message_id: messageId }).eq("id", eventRowId);
-        return;
-      }
+      if (id.startsWith("admin_accept_") || id.startsWith("admin_reject_")) {
+        // Format: admin_accept_{orderId}_{dealerPhone} or admin_reject_{orderId}_{dealerPhone}
+        const isAccept = id.startsWith("admin_accept_");
+        const withoutPrefix = id.replace(isAccept ? "admin_accept_" : "admin_reject_", "");
+        // orderId is UUID (36 chars), rest is dealer phone
+        const orderId = withoutPrefix.substring(0, 36);
+        const dealerPhone = withoutPrefix.substring(37); // skip the underscore
 
-      if (id.startsWith("admin_reject_")) {
-        const { messageId } = await sendWhatsAppMessage(senderPhone, "Please use the Admin Dashboard to accept or reject orders.");
-        await db.from("whatsapp_inbound_events").update({ processing_status: "admin_rejected", reply_message_id: messageId }).eq("id", eventRowId);
+        if (!orderId || !dealerPhone) {
+          await sendWhatsAppMessage(senderPhone, "Could not identify the order. Please use the Admin Dashboard.");
+          return;
+        }
+
+        const newStatus = isAccept ? "accepted" : "rejected";
+        const { error: updateErr } = await db.from("orders").update({ status: newStatus }).eq("id", orderId);
+
+        if (updateErr) {
+          console.error("[webhook] Failed to update order status:", updateErr.message);
+          await sendWhatsAppMessage(senderPhone, "⚠️ Failed to update order. Please try the Admin Dashboard.");
+          return;
+        }
+
+        // Confirm to admin
+        const adminConfirm = isAccept
+          ? `✅ Order *${orderId.substring(0, 8)}...* has been *accepted*. The dealer will be notified.`
+          : `❌ Order *${orderId.substring(0, 8)}...* has been *rejected*. The dealer will be notified.`;
+        const { messageId } = await sendWhatsAppMessage(senderPhone, adminConfirm);
+
+        // Notify dealer
+        const dealerMsg = isAccept ? buildDealerApprovalReply() : buildDealerRejectionReply();
+        await sendWhatsAppMessage(dealerPhone, dealerMsg).catch(console.error);
+
+        await db.from("whatsapp_inbound_events").update({
+          processing_status: isAccept ? "admin_accepted" : "admin_rejected",
+          reply_message_id: messageId
+        }).eq("id", eventRowId);
         return;
       }
 
