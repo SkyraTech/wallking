@@ -3,7 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import * as xlsx from "xlsx";
 import { parseImportRow } from "@/lib/stock-service";
-import { db } from "@/lib/supabase-server";
+import { db } from "@/lib/db";
 
 export async function GET() {
   try {
