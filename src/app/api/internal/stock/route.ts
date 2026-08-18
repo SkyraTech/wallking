@@ -82,6 +82,22 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Search mode — returns matching design numbers for autocomplete
+  const search = searchParams.get("search");
+  if (search && search.trim().length >= 2) {
+    const { db } = await import("@/lib/db");
+    const { data } = await db
+      .from("stock_items")
+      .select("design_number_display, quantity_on_hand")
+      .ilike("design_number_display", `%${search.trim()}%`)
+      .order("quantity_on_hand", { ascending: false })
+      .limit(8);
+    return NextResponse.json(
+      { designs: (data || []).map((r) => r.design_number_display) },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   if (!rawDesignNo.trim()) {
     return NextResponse.json(
       { error: "missing_design_no", message: "designNo query parameter is required" },

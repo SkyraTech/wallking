@@ -72,17 +72,49 @@ export function StockAvailabilityWidget({
   };
 
   const [sampleDesigns, setSampleDesigns] = useState<string[]>(["7517-04", "ONYX-102", "BEL-804"]);
+  const [topDesigns, setTopDesigns] = useState<string[]>([]);
+  const [searchSuggestions, setSearchSuggestions] = useState<string[] | null>(null);
+  const [suggestLoading, setSuggestLoading] = useState(false);
 
+  // Load top 6 once on mount
   useEffect(() => {
     fetch("/api/internal/stock?top=6")
       .then((res) => res.json())
       .then((data) => {
         if (data.designs && data.designs.length > 0) {
+          setTopDesigns(data.designs);
           setSampleDesigns(data.designs);
         }
       })
       .catch(() => {});
   }, []);
+
+  // Debounced live search as user types
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setSearchSuggestions(null);
+      setSampleDesigns(topDesigns.length > 0 ? topDesigns : ["7517-04", "ONYX-102", "BEL-804"]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setSuggestLoading(true);
+      try {
+        const res = await fetch(`/api/internal/stock?search=${encodeURIComponent(query.trim())}`);
+        const data = await res.json();
+        setSearchSuggestions(data.designs || []);
+      } catch {
+        setSearchSuggestions([]);
+      } finally {
+        setSuggestLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query, topDesigns]);
+
+  const displayChips = searchSuggestions !== null ? searchSuggestions : sampleDesigns;
+  const chipsLabel = query.trim().length >= 2
+    ? (suggestLoading ? "Searching..." : searchSuggestions?.length === 0 ? "No matches" : "Matches:")
+    : "Try:";
 
   return (
     <div className="w-full rounded-2xl border border-line bg-panel/90 p-6 shadow-2xl backdrop-blur-xl md:p-8">
@@ -147,9 +179,9 @@ export function StockAvailabilityWidget({
         </button>
       </form>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-3">
-        <span>Try:</span>
-        {sampleDesigns.map((d) => (
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-3 min-h-[28px]">
+        <span className={suggestLoading ? "animate-pulse" : ""}>{chipsLabel}</span>
+        {!suggestLoading && displayChips.map((d) => (
           <button
             key={d}
             type="button"
