@@ -292,11 +292,21 @@ async function processMessage(
           return;
         }
 
-        const newStatus = isAccept ? "accepted" : "rejected";
-        const { error: updateErr } = await db.from("orders").update({ status: newStatus }).eq("id", orderId);
+        // Call the admin orders API — this handles stock deduction + audit logs
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://wallking-eight.vercel.app";
+        const adminSecret = process.env.ADMIN_SECRET || "";
+        const apiRes = await fetch(`${appUrl}/api/admin/orders`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-secret": adminSecret
+          },
+          body: JSON.stringify({ id: orderId, action: isAccept ? "accept" : "reject", source: "WHATSAPP" })
+        });
 
-        if (updateErr) {
-          console.error("[webhook] Failed to update order status:", updateErr.message);
+        if (!apiRes.ok) {
+          const errText = await apiRes.text();
+          console.error("[webhook] Failed to update order via API:", errText);
           await sendWhatsAppMessage(senderPhone, "⚠️ Failed to update order. Please try the Admin Dashboard.");
           return;
         }

@@ -137,7 +137,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const { id, action } = body;
+  const { id, action, source } = body;  // source: "WHATSAPP" | "ADMIN_DASHBOARD"
 
   if (!id || !action || !["accept", "reject"].includes(action)) {
     return NextResponse.json({ error: "Invalid action or missing ID" }, { status: 400 });
@@ -213,7 +213,10 @@ export async function PATCH(req: NextRequest) {
         previous_quantity: stock.quantity_on_hand,
         new_quantity: newOnHand,
         delta: -item.quantity,
-        created_by: "SYSTEM"
+        // If approved from WhatsApp show dealer phone, otherwise show who approved it
+        created_by: source === "WHATSAPP"
+          ? `WA:${order.dealer_phone}`
+          : "ADMIN_DASHBOARD"
       });
     }
 
