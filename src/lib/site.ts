@@ -16,8 +16,8 @@ export const site = {
   url: "https://wallking.in",
   email: "wallking1@gmail.com",
   /** Digits only, country code first — used to build wa.me links. */
-  whatsapp: "919396202277",
-  whatsappDisplay: "+91 93962 02277",
+  whatsapp: "919014561780",
+  whatsappDisplay: "+91 90145 61780",
   primaryPhone: "+914023202255",
   primaryPhoneDisplay: "+91 40 2320 2255",
 } as const;
