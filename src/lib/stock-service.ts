@@ -101,6 +101,29 @@ export interface ImportResult {
 }
 
 // ---------------------------------------------------------------------------
+// Get Top Designs
+// ---------------------------------------------------------------------------
+export async function getTopDesigns(limit: number = 6): Promise<string[]> {
+  try {
+    const { data, error } = await db
+      .from("stock_items")
+      .select("design_number_display, quantity_on_hand")
+      .order("quantity_on_hand", { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+    return (data || []).map((row) => row.design_number_display);
+  } catch (err) {
+    console.error("Failed to fetch top designs", err);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Create Order (Cart & Allocations)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Design number normalization
 // ---------------------------------------------------------------------------
 

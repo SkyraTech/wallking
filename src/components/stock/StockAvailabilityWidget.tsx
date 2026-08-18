@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, CheckCircle2, XCircle, AlertTriangle, ArrowRight, Send, Database, Loader2, Lock } from "lucide-react";
 import Link from "next/link";
 import { whatsappLink } from "@/lib/site";
@@ -71,7 +71,18 @@ export function StockAvailabilityWidget({
     }
   };
 
-  const sampleDesigns = ["7517-04", "ONYX-102", "BEL-804", "LOH-201", "GEO-509", "MAR-304"];
+  const [sampleDesigns, setSampleDesigns] = useState<string[]>(["7517-04", "ONYX-102", "BEL-804"]);
+
+  useEffect(() => {
+    fetch("/api/internal/stock?top=6")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.designs && data.designs.length > 0) {
+          setSampleDesigns(data.designs);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="w-full rounded-2xl border border-line bg-panel/90 p-6 shadow-2xl backdrop-blur-xl md:p-8">
@@ -169,7 +180,7 @@ export function StockAvailabilityWidget({
                 We could not retrieve live stock right now. Please try again in a moment, or contact our desk directly.
               </p>
               <a
-                href={whatsappLink(`Hello Wall King -- I would like to check stock for Design No: ${searchedText}`)}
+                href={whatsappLink(`${searchedText} `)}
                 target="_blank"
                 rel="noreferrer noopener"
                 className="mt-4 inline-flex items-center gap-2 rounded-xl border border-accent/40 bg-accent/10 px-5 py-2.5 text-xs font-semibold text-accent hover:bg-accent hover:text-white transition-colors"
@@ -220,9 +231,7 @@ export function StockAvailabilityWidget({
               <div className="mt-2 md:mt-0 shrink-0">
                 {result.quantityOnHand! > 0 ? (
                   <a
-                    href={whatsappLink(
-                      `Hello Wall King -- Order Request:\nDesign No: ${result.designNo}\nBrand: ${result.brand}\nAvailable Stock: ${result.quantityOnHand} Rolls\nI would like to place an order.`
-                    )}
+                    href={whatsappLink(`${result.designNo} `)}
                     target="_blank"
                     rel="noreferrer noopener"
                     className="inline-flex items-center gap-2.5 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-bold text-white shadow-lg transition-transform hover:scale-105 hover:bg-emerald-500"
@@ -232,9 +241,7 @@ export function StockAvailabilityWidget({
                   </a>
                 ) : (
                   <a
-                    href={whatsappLink(
-                      `Hello Wall King -- Enquiry:\nDesign No: ${result.designNo} is Out of Stock. When is the next shipment expected?`
-                    )}
+                    href={whatsappLink(`${result.designNo} `)}
                     target="_blank"
                     rel="noreferrer noopener"
                     className="inline-flex items-center gap-2 rounded-xl border border-line bg-panel px-5 py-3 text-xs font-semibold text-ink hover:border-accent"
@@ -257,9 +264,7 @@ export function StockAvailabilityWidget({
                 No matching inventory record found for &quot;{searchedText}&quot;. Please verify the design number or enquire with our dispatch desk.
               </p>
               <a
-                href={whatsappLink(
-                  `Hello Wall King -- I am searching for Design No: ${searchedText}. Please check if this is available or arriving in shipment.`
-                )}
+                href={whatsappLink(`${searchedText} `)}
                 target="_blank"
                 rel="noreferrer noopener"
                 className="mt-4 inline-flex items-center gap-2 rounded-xl border border-accent/40 bg-accent/10 px-5 py-2.5 text-xs font-semibold text-accent hover:bg-accent hover:text-white transition-colors"

@@ -18,7 +18,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { lookupStock, StockLookupError } from "@/lib/stock-service";
+import { lookupStock, StockLookupError, getTopDesigns } from "@/lib/stock-service";
 
 // ---------------------------------------------------------------------------
 // Simple in-memory rate limiter (per IP, resets on server restart)
@@ -70,6 +70,17 @@ export async function GET(req: NextRequest) {
     searchParams.get("design_no") ??
     searchParams.get("q") ??
     "";
+
+  const top = searchParams.get("top");
+  if (top) {
+    const limit = parseInt(top, 10) || 6;
+    const designs = await getTopDesigns(limit);
+    return NextResponse.json({ designs }, {
+      headers: {
+        "Cache-Control": "public, max-age=3600, s-maxage=3600",
+      },
+    });
+  }
 
   if (!rawDesignNo.trim()) {
     return NextResponse.json(
